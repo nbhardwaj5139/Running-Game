@@ -2,138 +2,103 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World, W, replay } from '../prototype/src/core/world.js';
 import { Player, P, speedAt } from '../prototype/src/core/player.js';
-import { CHUNK_LEN, LANES, WINDOW } from '../prototype/src/core/chunks.js';
+import { generate, LANES_TOTAL, globalLane, CHUNK_LEN } from '../prototype/src/core/chunks.js';
 
-const run = (w, ticks) => { for (let i = 0; i < ticks && w.player.alive; i++) w.step(); };
-
-test('speed curve ramps and caps', () => {
-  assert.equal(speedAt(0), P.SPEED_BASE);
-  assert.ok(speedAt(1000) > speedAt(0));
-  assert.equal(speedAt(1e9), P.SPEED_MAX);
-});
-
-test('lane changes clamp to the window and ease over LANE_T', () => {
-  const p = new Player();
-  p.input({ kind: 'lane', dir: -1 }); p.step(1 / 60);
-  assert.equal(p.viewLane, 0);
-  p.input({ kind: 'lane', dir: -1 }); for (let i = 0; i < 20; i++) p.step(1 / 60);
-  assert.equal(p.viewLane, 0);
-  assert.ok(Math.abs(p.xLane - 0) < 1e-6, 'eased to lane 0');
-  p.input({ kind: 'lane', dir: 1 }); p.step(1 / 60);
-  assert.ok(p.xLane > 0 && p.xLane < 1, 'mid-change');
-});
-
-test('jump has variable height and a short hop on early release', () => {
-  const full = new Player(); full.input({ kind: 'jump' });
-  let maxFull = 0; for (let i = 0; i < 60; i++) { full.step(1 / 60); maxFull = Math.max(maxFull, full.y); }
-  const short = new Player(); short.input({ kind: 'jump' }); short.step(1 / 60); short.input({ kind: 'jumpRelease' });
-  let maxShort = 0; for (let i = 0; i < 60; i++) { short.step(1 / 60); maxShort = Math.max(maxShort, short.y); }
-  assert.ok(maxFull > 1.5, `full jump too low: ${maxFull}`);
-  assert.ok(maxShort < maxFull * 0.8, `short hop not shorter: ${maxShort} vs ${maxFull}`);
-  assert.equal(full.grounded, true);
-});
-
-test('input buffering: a jump pressed just before landing fires on landing', () => {
-  const p = new Player(); p.input({ kind: 'jump' });
-  for (let i = 0; i < 38; i++) p.step(1 / 60);          // airborne, ~5 ticks before landing
-  assert.equal(p.grounded, false);
-  p.input({ kind: 'jump' });                              // buffered while in the air (past coyote, within BUFFER_T)
-  let jumped = 0;
-  for (let i = 0; i < 30; i++) { const g = p.grounded; p.step(1 / 60); if (g && !p.grounded) jumped++; }
-  assert.equal(jumped, 1, 'buffered jump should fire once on landing');
-});
-
-test('slide shrinks the hitbox and ends after SLIDE_T', () => {
-  const p = new Player(); p.input({ kind: 'slide' }); p.step(1 / 60);
-  assert.equal(p.action, 'slide'); assert.equal(p.height, P.SLIDE_H);
-  for (let i = 0; i < 40; i++) p.step(1 / 60);
-  assert.equal(p.action, 'run');
-});
-
-test('world is deterministic for identical input logs', () => {
-  const a = new World(31, { solo: true }), b = new World(31, { solo: true });
-  const script = (w, t) => { if (t % 37 === 0) w.input({ kind: 'lane', dir: t % 74 ? 1 : -1 }); if (t % 53 === 0) w.input({ kind: 'jump' }); if (t % 61 === 0) w.input({ kind: 'slide' }); };
-  for (let t = 0; t < 3000; t++) { script(a, t); script(b, t); a.step(); b.step(); }
-  assert.deepEqual(a.summary, b.summary);
-  assert.equal(a.log.length, b.log.length);
-});
-
-test('replay reproduces a run from seed + log', () => {
-  const w = new World(77, { solo: true });
-  for (let t = 0; t < 4000 && w.player.alive; t++) {
-    if (t % 41 === 0) w.input({ kind: 'lane', dir: t % 82 ? 1 : -1 });
-    if (t % 29 === 0) w.input({ kind: 'jump' });
+const same = (a, b) => !!a && a.z === b.z && a.lane === b.lane && a.track === b.track && a.type === b.type;
+const run = (w, ticks) => { for (let i = 0; i < ticks && w.alive; i++) w.step(); };
+/** Find a seed whose first chunks put `type` on track `track` (returns the cell). */
+function findCell(type, track = 1, pred = () => true) {
+  for (let s = 1; s < 4000; s++) for (let i = 1; i < 4; i++) { const c = generate(s, i); const cell = c.cells.find(k => k.type === type && k.track === track && pred(k)); if (cell) return { seed: s, cell }; }
+  throw new Error('no cell found');
+}
+/** Steer runners to global lanes ({id: g}) with one input per tick each, running until just before z. */
+function approach(w, targets, z, margin = 3) {
+  while (w.alive && w.distance < z - margin) {
+    for (const [id, g] of Object.entries(targets)) { const p = w.runners[id]; if (p.lane !== g && p.laneT >= 1) w.input(Number(id), { kind: 'lane', dir: Math.sign(g - p.lane) }); }
     w.step();
   }
-  const r = replay(77, w.log, w.tick);
-  assert.equal(r.distance, w.summary.distance);
-  assert.equal(r.score, w.summary.score);
+}
+
+test('speed curve and player basics', () => {
+  assert.equal(speedAt(0), P.SPEED_BASE); assert.ok(speedAt(1000) > speedAt(0)); assert.equal(speedAt(1e9), P.SPEED_MAX);
+  const p = new Player(0); assert.equal(p.lane, 1);
+  for (let i = 0; i < 4; i++) { p.input({ kind: 'lane', dir: -1 }); for (let k = 0; k < 12; k++) p.step(1 / 60); }
+  assert.equal(p.lane, 0, 'clamped at the road edge');
+  const q = new Player(1); for (let i = 0; i < 6; i++) { q.input({ kind: 'lane', dir: 1 }); for (let k = 0; k < 12; k++) q.step(1 / 60); }
+  assert.equal(q.lane, LANES_TOTAL - 1);
+  const full = new Player(); full.input({ kind: 'jump' }); let mf = 0; for (let i = 0; i < 60; i++) { full.step(1 / 60); mf = Math.max(mf, full.y); }
+  const short = new Player(); short.input({ kind: 'jump' }); short.step(1 / 60); short.input({ kind: 'jumpRelease' }); let ms = 0; for (let i = 0; i < 60; i++) { short.step(1 / 60); ms = Math.max(ms, short.y); }
+  assert.ok(mf > 1.0 && ms < mf * 0.8);
 });
 
-test('an idle runner in lane 1 eventually dies (the eye is not empty)', () => {
-  let died = 0;
-  for (let s = 1; s <= 20; s++) { const w = new World(s, { solo: true }); run(w, 60 * 120); if (!w.player.alive) died++; }
-  assert.ok(died >= 15, `only ${died}/20 idle runs died`);
+test('both runners share distance; a stumble slows the pair; coins score and heal the storm', () => {
+  const w = new World(3, { invincible: true }); const ev = {}; w.opts.onEvent = e => { ev[e.type] = (ev[e.type] || 0) + 1; };
+  run(w, 60 * 20);
+  assert.equal(w.runners[0].z, w.runners[1].z); assert.ok(w.distance > 200);
+  assert.ok(ev.coin > 0); assert.ok(w.score > w.distance);
+  const s = new World(3, { invincible: true }); run(s, 60 * 20);
+  assert.equal(s.distance, w.distance, 'deterministic');
 });
 
-test('saccade shifts the window after its telegraph and is clamped to the retina', () => {
-  const w = new World(3, { solo: false });
-  assert.equal(w.window, 1);
-  w.scheduleSaccade(1, null, 'me');
-  assert.ok(w.pending && w.pending.atTick - w.tick === Math.round(W.SACCADE_TELEGRAPH * 60));
-  run(w, 30); assert.equal(w.window, 2);
-  w.scheduleSaccade(1, null, 'rival');           // would leave the retina -> flips
-  run(w, 20); assert.equal(w.window, 1);
-  assert.ok(w.window >= 0 && w.window <= LANES - WINDOW);
+test('shield absorbs a stumble; dash clears; magnet collects off-lane coins; x2 doubles; heal caps', () => {
+  const { seed, cell } = findCell('drusen');
+  const w = new World(seed, { invincible: true }); const ev = []; w.opts.onEvent = e => { if (same(e.cell, cell)) ev.push(e.type); };
+  approach(w, { 1: globalLane(1, cell.lane) }, cell.z); w.runners[1].shield = true; run(w, 60);
+  assert.deepEqual(ev, ['shield'], 'shield ate the hit');
+  const d = new World(seed, { invincible: true }); const ev2 = []; d.opts.onEvent = e => { if (same(e.cell, cell)) ev2.push(e.type); };
+  approach(d, { 1: globalLane(1, cell.lane) }, cell.z); d.runners[1].dashT = 99; run(d, 60);
+  assert.deepEqual(ev2, ['clear']);
+  const { seed: cs, cell: coin } = findCell('photon', 1, k => !k.hi);
+  const m = new World(cs, { invincible: true }); let got = 0; m.opts.onEvent = e => { if (e.type === 'coin' && same(e.cell, coin)) got++; };
+  const other = coin.lane === 0 ? 2 : 0; approach(m, { 1: globalLane(1, other) }, coin.z); m.runners[1].magnetT = 999; run(m, 60);
+  assert.equal(got, 1, 'magnet pulled the coin from another lane');
+  const x = new World(cs, { invincible: true }); x.x2T = 999; let n = 0; x.opts.onEvent = e => { if (e.type === 'coin') n = e.n; }; run(x, 60 * 10); assert.equal(n, 2);
+  const h = new World(1); h.storm = W.STORM_MAX - 1; h._power({ kind: 'heal' }, h.runners[1]); assert.equal(h.storm, W.STORM_MAX);
 });
 
-test('spending nerve requires NERVE_COST and fires a saccade', () => {
-  const w = new World(3, { solo: false });
-  assert.equal(w.spendNerve(1), false);
-  w.nerve = W.NERVE_COST;
-  assert.equal(w.spendNerve(-1), true);
-  assert.equal(w.nerve, 0);
-  assert.ok(w.pending);
+test('a fall respawns and costs margin; death only when the storm catches up; invincible never dies', () => {
+  const { seed, cell } = findCell('gap');
+  const w = new World(seed); const ev = []; w.opts.onEvent = e => { if (same(e.cell, cell)) ev.push(e.type); };
+  approach(w, { 1: globalLane(1, cell.lane) }, cell.z); w.storm = W.STORM_START; const before = w.storm; run(w, 60);
+  assert.deepEqual(ev, ['fall']); assert.ok(w.alive); assert.ok(w.storm < before - 10);
+  const d = new World(seed); approach(d, { 1: globalLane(1, cell.lane) }, cell.z); d.storm = 1; run(d, 60);
+  assert.equal(d.alive, false); assert.ok(['fall', 'storm'].includes(d.deathReason));
+  const i = new World(seed, { invincible: true }); run(i, 60 * 90); assert.ok(i.alive);
 });
 
-test('gap without jumping kills; gap with jump clears', () => {
-  // find a seed/chunk where a gap sits in world lane 2 (view lane 1 with window 1) early in the run
-  for (let s = 1; s < 400; s++) {
-    const w = new World(s, { solo: false });
-    const gap = w.pool.live.flatMap(c => c.cells).find(c => c.type === 'gap' && c.lane === 2 && c.z > 40 && c.z < 250);
-    if (!gap) continue;
-    // Make sure the runner is not killed by something earlier: only proceed if nothing blocks lane 2 before the gap
-    const earlier = w.pool.live.flatMap(c => c.cells).filter(c => c.lane === 2 && c.z < gap.z && (c.type === 'gap' || c.type === 'stalk' || c.type === 'arch' || c.type === 'drusen'));
-    if (earlier.length) continue;
-    run(w, 60 * 60);
-    assert.equal(w.player.alive, false);
-    assert.equal(w.deathReason, 'fall');
-    // now jump right before the gap
-    const w2 = new World(s, { solo: false });
-    while (w2.player.alive && w2.player.z < gap.z - W.GAP_DEPTH / 2 - 3) w2.step();
-    w2.input({ kind: 'jump' });
-    run(w2, 90);
-    assert.ok(w2.player.z > gap.z, 'ran past the gap');
-    assert.equal(w2.player.alive, true, 'jumped the gap');
-    return;
-  }
-  assert.fail('no test seed found');
+test('replay reproduces a scripted run exactly; section events fire', () => {
+  const w = new World(21); const sections = []; w.opts.onEvent = e => { if (e.type === 'section') sections.push([e.biome, e.season]); };
+  for (let i = 0; i < 60 * 30 && w.alive; i++) { if (i % 37 === 0) w.input(1, { kind: ['lane', 'jump', 'slide'][i % 3], dir: i % 2 ? 1 : -1 }); if (i % 53 === 0) w.input(0, { kind: 'jump' }); w.step(); }
+  assert.deepEqual(replay(21, w.log, 60 * 30), w.summary);
+  const far = new World(22, { invincible: true }); const s2 = []; far.opts.onEvent = e => { if (e.type === 'section') s2.push(e); };
+  run(far, 60 * 25); assert.ok(far.distance > BIOME_LEN_M() , 'ran past the first section'); assert.ok(s2.length >= 1 && s2[0].biome === 1);
+  function BIOME_LEN_M() { return 8 * CHUNK_LEN; }
 });
 
-test('photon collection scores, charges nerve and pushes the Blink back', () => {
-  const w = new World(1, { solo: false });          // chunk 0 is photons only
-  const before = w.blink;
-  run(w, 60 * 3);
-  assert.ok(w.photons > 0);
-  assert.ok(w.nerve > 0);
-  assert.ok(w.score > w.player.distance);
-  assert.ok(w.blink >= before - 1);
+test('barging: a moving runner shoves the other one lane; edge bounces; jumping over is free; cooldown', () => {
+  const w = new World(5, { invincible: true }); const bumps = []; w.opts.onEvent = e => { if (e.type === 'bump') bumps.push(e); };
+  const [a, b] = w.runners;                       // a at lane 1, b at lane 4
+  approach(w, { 0: 2, 1: 3 }, 40);   // adjacent across the centre line
+  assert.equal(a.lane, 2); assert.equal(b.lane, 3);
+  w.input(1, { kind: 'lane', dir: -1 }); run(w, 6);
+  assert.equal(bumps.length, 1); assert.equal(bumps[0].mover, 1); assert.equal(bumps[0].victim, 0);
+  assert.equal(a.lane, 1, 'victim shoved left'); run(w, 30);
+  // cooldown: nothing else fired in the same window
+  assert.equal(bumps.length, 1);
+  // edge: push a to lane 0 first, then try to shove again from lane 1
+  const e = new World(5, { invincible: true }); const eb = []; e.opts.onEvent = ev => { if (ev.type === 'bump') eb.push(ev); };
+  approach(e, { 0: 0, 1: 1 }, 40); e.input(1, { kind: 'lane', dir: -1 }); run(e, 6);
+  assert.equal(eb.length, 1); assert.equal(eb[0].victim, -1, 'mover bounced at the road edge'); assert.equal(e.runners[0].lane, 0); assert.ok(e.runners[1].lane >= 1);
+  // jump over: b jumps, then moves into a's lane while airborne — no bump
+  const j = new World(5, { invincible: true }); const jb = []; j.opts.onEvent = ev => { if (ev.type === 'bump') jb.push(ev); };
+  approach(j, { 0: 2, 1: 3 }, 40); j.input(1, { kind: 'jump' }); run(j, 12); j.input(1, { kind: 'lane', dir: -1 }); run(j, 4);
+  assert.ok(j.runners[1].y > 0.8); assert.equal(jb.length, 0);
 });
 
-test('chunk pool recycles as the runner advances', () => {
-  let recycles = 0;
-  const w = new World(9, { solo: false, invincible: true, onEvent: (e) => { if (e.type === 'recycle') recycles++; } });
-  while (w.player.alive && w.player.z < CHUNK_LEN * 5) w.step();
-  assert.ok(recycles >= 3, `recycles=${recycles}`);
-  assert.equal(w.pool.live.length, 8);
+test('autopilot companion stays on its home lanes and its mistakes are free', () => {
+  const w = new World(8, { autopilot: [0] }); let free = 0, paid = 0, maxLane = -1;
+  w.opts.onEvent = e => { if ((e.type === 'stumble' || e.type === 'fall') && e.runner === 0) { if (e.free) free++; else paid++; } };
+  for (let i = 0; i < 60 * 60 && w.alive; i++) { w.step(); maxLane = Math.max(maxLane, w.runners[0].lane); }
+  assert.ok(maxLane <= 2); assert.equal(paid, 0);
+  assert.ok(w.log.every(e => !e.i || e.i.track === 0), 'autopilot inputs are logged');
 });

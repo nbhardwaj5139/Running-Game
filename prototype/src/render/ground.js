@@ -149,7 +149,8 @@ const frag = /* glsl */`
       float s = exp(-dx * dx * (0.5 + 0.02 * dz)) * step(0.0, dz) * exp(-dz * 0.09) * (0.25 + 0.75 * puddle);
       glow += uLightCol[i] * s * L.w;
     }
-    glow *= 0.55 * (0.45 + 0.55 * uNight) * (0.7 + 0.5 * uWet) * mix(0.3, 1.0, road);
+    glow *= 0.4 * (0.45 + 0.55 * uNight) * (0.7 + 0.5 * uWet) * mix(0.3, 1.0, road);
+    glow = glow / (1.0 + glow);                       // soft clamp: many lights never whiten the road
 
     col *= mix(1.0, 0.45, uNight);
     col += glow;

@@ -27,7 +27,7 @@ export const nightAt = (distance) => 0.5 - 0.5 * Math.cos((2 * Math.PI * distanc
 export function snowAt(index) {
   const s = seasonOf(index), k = index % SEASON_LEN;
   if (s === 3) return Math.min(1, (k + 1) / 2);
-  if (s === 0) return Math.max(0, 1 - k / 2);
+  if (s === 0 && index >= SEASON_LEN) return Math.max(0, 1 - k / 2);   // the very first spring has no winter behind it
   return 0;
 }
 

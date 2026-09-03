@@ -1,6 +1,6 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, CHUNK_LEN } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, CHUNK_LEN, DIFFICULTY } from './chunks.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
 
@@ -29,9 +29,10 @@ export class World {
   /** @param {number} seed uint32  @param {object} opts { onEvent(evt), invincible } */
   constructor(seed, opts = {}) {
     this.seed = seed; this.opts = opts;
+    this.cfg = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.runners = [new Player(0), new Player(1)];
-    this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
-    this.distance = 0; this.speed = speedAt(0);
+    this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, cfg: this.cfg, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
+    this.distance = 0; this.speed = speedAt(0, this.cfg);
     this.storm = W.STORM_START;
     this.score = 0; this.coins = 0; this.streak = 0; this.x2T = 0; this.powers = 0;
     this.tick = 0; this.time = 0;
@@ -60,7 +61,7 @@ export class World {
 
     // --- shared forward motion: the pair runs together, a stumble slows both ---
     const mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
-    this.speed = speedAt(this.distance) * mult;
+    this.speed = speedAt(this.distance, this.cfg) * mult;
     const prevZ = this.distance;
     this.distance += this.speed * dt;
     this.score += (this.distance - prevZ) * W.SCORE_PER_M * (this.x2T > 0 ? 2 : 1);
@@ -119,9 +120,9 @@ export class World {
     }
 
     // --- the typhoon ---
-    const pressure = W.STORM_DRIFT * Math.min(1, this.distance / 2500);
+    const pressure = this.cfg.drift * Math.min(1, this.distance / 2500);
     const clean = this.runners.every(r => r.stumbleT === 0);
-    this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? W.STORM_RECOVER : 0) * dt - pressure * dt);
+    this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - pressure * dt);
     if (this.storm <= 0) this._die('storm');
   }
 
@@ -229,13 +230,13 @@ export class World {
   }
 
   get summary() {
-    return { seed: this.seed, distance: Math.floor(this.distance), score: Math.floor(this.score), coins: this.coins, powers: this.powers, reason: this.deathReason, ticks: this.tick };
+    return { seed: this.seed, difficulty: this.cfg.id, distance: Math.floor(this.distance), score: Math.floor(this.score), coins: this.coins, powers: this.powers, reason: this.deathReason, ticks: this.tick };
   }
 }
 
 /** Replay a run headlessly from its input log: used to validate a submitted score. */
-export function replay(seed, log, maxTicks = 60 * 60 * 30) {
-  const w = new World(seed);
+export function replay(seed, log, maxTicks = 60 * 60 * 30, difficulty = 'normal') {
+  const w = new World(seed, { difficulty });
   let i = 0;
   while (w.alive && w.tick < maxTicks) {
     while (i < log.length && log[i].t === w.tick) { const e = log[i++]; if (e.i) w.runners[e.i.track ?? 1].input(e.i); }

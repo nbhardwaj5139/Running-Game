@@ -307,10 +307,10 @@ export class Renderer {
         break;
       }
       case 'shield': this.shock.burst(roadX(this.world.runners[e.runner].xLane), this.world.distance, new THREE.Color(1.5, 2.2, 2.6)); break;
-      case 'bump': { const m = this.world.runners[e.mover]; this.shock.burst(roadX(m.xLane), this.world.distance, new THREE.Color(2.2, 1.8, 1.2)); this.shake = Math.max(this.shake, 0.35); break; }
-      case 'stumble': this.shake = Math.max(this.shake, 0.5); if (R) R.hurt = 0.6; break;
-      case 'fall': this.shake = Math.max(this.shake, 0.9); if (R) R.hurt = 1.0; break;
-      case 'death': this.shake = 1.4; for (const r of this.rigs) r.hurt = 2; break;
+      case 'bump': { const m = this.world.runners[e.mover]; this.shock.burst(roadX(m.xLane), this.world.distance, new THREE.Color(2.2, 1.8, 1.2)); break; }
+      case 'stumble': this.shake = Math.max(this.shake, 0.18); if (R) R.hurt = 0.6; break;
+      case 'fall': this.shake = Math.max(this.shake, 0.3); if (R) R.hurt = 1.0; break;
+      case 'death': this.shake = 0.5; for (const r of this.rigs) r.hurt = 2; break;
     }
   }
 
@@ -363,16 +363,13 @@ export class Renderer {
       R.trail.emit(px, p.y, w.distance, dt, w.alive && w.speed > 1);
     }
 
-    // ---- camera
+    // ---- camera: rock steady. No roll, no jitter, no bob — only a slow field-of-view ease with speed.
     const cam = this.camera;
-    const targetFov = 66 + 14 * clamp01((w.speed - P.SPEED_BASE) / (P.SPEED_MAX - P.SPEED_BASE)) + (w.runners.some(r => r.dashT > 0) ? 6 : 0);
-    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
-    const avgY = (w.runners[0].y + w.runners[1].y) * 0.5;
-    cam.position.y += (5.2 + avgY * 0.25 - cam.position.y) * Math.min(1, dt * 6);
-    this.shake *= Math.exp(-dt * 5);
-    const jitter = this.shake * 0.04;
-    cam.lookAt(jitter * 6 * Math.sin(this.time * 53), 1.3 + jitter * 4 * Math.sin(this.time * 71), 22);
-    cam.rotateZ(-leanSum * 0.25 + jitter * Math.sin(this.time * 67));
+    const targetFov = 66 + 10 * clamp01((w.speed - P.SPEED_BASE) / (P.SPEED_MAX - P.SPEED_BASE));
+    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 1.5); cam.updateProjectionMatrix();
+    cam.position.set(0, 5.2, -8.5);
+    cam.lookAt(0, 1.3, 22);
+    this.shake = 0;
 
     // ---- typhoon
     this.storm.position.y = 34 - dread * 24 + (w.alive ? 0 : -9);
@@ -399,7 +396,6 @@ export class Renderer {
       if (!r.group.visible) continue;
       K.stompT += dt; const stomp = Math.abs(Math.sin(K.stompT * 2.8));
       r.group.position.set(K.side * 7, K.y * 1.4 + stomp * 1.4 - 1.4, 108); r.group.scale.set(K.side * 1.4, 1.4, 1.4); r.group.rotation.y = K.side * 0.5;
-      if (Math.sin(K.stompT * 2.8) < 0 && Math.sin((K.stompT - dt) * 2.8) >= 0) { this.shake = Math.max(this.shake, 0.3 + 0.2 * (1 - dread)); }
       K.throwT += dt; const swing = K.throwT < 0.55 ? Math.sin((K.throwT / 0.55) * Math.PI) : 0;
       r.arm.rotation.x = -0.35 - swing * 1.7; r.arm.rotation.z = -0.25;
       if (!kj) K.id = K.y <= -41 ? null : K.id;
@@ -412,7 +408,7 @@ export class Renderer {
       const p = clamp01(1 - (dz - 4) / (lead - 4));
       if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); t.m.position.set(t.x, 0, t.cell.z); }
       else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.x = p * 6 * (t.cell.v % 2 ? 1 : -1); }
-      if (p >= 1) { t.landed = true; t.m.rotation.x = 0; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); this.shake = Math.max(this.shake, 0.25); }
+      if (p >= 1) { t.landed = true; t.m.rotation.x = 0; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); }
     }
     // shinkansen on the city viaduct
     if (this.train.visible) { this.train.position.z -= 62 * dt; if (this.train.position.z < w.distance - 70) this.train.visible = false; }

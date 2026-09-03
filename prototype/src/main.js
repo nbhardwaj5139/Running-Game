@@ -1,7 +1,7 @@
 // Bootstrap: sim + renderer + input + HUD + mode select (1P with a spirit companion / 2P shared keyboard).
 import { World, W } from './core/world.js';
 import { normalizeSeed } from './core/rng.js';
-import { CHUNK_LEN, biomeOf, seasonOf } from './core/chunks.js';
+import { CHUNK_LEN, biomeOf, seasonOf, DIFFICULTY } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 
@@ -15,13 +15,21 @@ const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('s
   secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
 const POWER_NAMES = { shield: '御守 KITSUNE SHIELD', magnet: '狸の磁力 TANUKI MAGNET', dash: '風神 WIND KAMI DASH', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL' };
 
-let world, renderer, running = false, mode = 0;
+let world, renderer, running = false, mode = 0, difficulty = 'normal';
 let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
-try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; } catch { mode = 0; }
+try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
+if (DIFFICULTY[q.get('diff')]) difficulty = q.get('diff');
+if (!DIFFICULTY[difficulty]) difficulty = 'normal';
+function setDifficulty(d) {
+  difficulty = d; try { localStorage.setItem('kitsune.diff', d); } catch {}
+  for (const b of document.querySelectorAll('.dbtn')) b.classList.toggle('on', b.dataset.diff === d);
+}
+document.getElementById('diff').addEventListener('click', (e) => { const b = e.target.closest('.dbtn'); if (b) { setDifficulty(b.dataset.diff); if (world && !running) newWorld(); } });
+setDifficulty(difficulty);
 
 function newWorld() {
   world = new World(seed, {
-    reducedMotion, autopilot: mode === 1 ? [0] : [],
+    reducedMotion, difficulty, autopilot: mode === 1 ? [0] : [],
     onEvent: (e) => {
       renderer?.onEvent(e);
       if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
@@ -44,7 +52,7 @@ function showSection(season, biome, toast) {
 function onDeath(e) {
   running = false;
   const why = e.reason === 'fall' ? '落ちた — The road gave way and the typhoon closed in.' : '台風 — The typhoon took the pair.';
-  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers`;
+  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers · ${DIFFICULTY[difficulty].en}`;
   hud.modes.style.display = 'flex';
   hud.foot.textContent = 'pick a mode, or press R / tap to run again in the same mode';
   hud.msg.classList.remove('hidden');
@@ -53,7 +61,7 @@ function onDeath(e) {
 function start(m) {
   if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
   if (!mode) return;                          // the start screen waits for a mode
-  if (!world || !world.alive || world.opts.autopilot.length !== (mode === 1 ? 1 : 0)) newWorld();
+  if (!world || !world.alive || world.opts.autopilot.length !== (mode === 1 ? 1 : 0) || world.cfg.id !== difficulty) newWorld();
   hud.who[0].textContent = mode === 1 ? 'spirit companion' : 'player 2 · WASD';
   hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
   running = true; hud.msg.classList.add('hidden'); last = performance.now(); acc = 0;
@@ -119,6 +127,7 @@ function frame(now) {
 newWorld();
 renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0' });
 hud.hint.textContent = `seed ${seedParam} · Seed of the Day — same road for everyone today`;
+requestAnimationFrame(() => hud.hint.textContent += ` · ${DIFFICULTY[difficulty].en}`);
 if (q.get('mode')) start(Number(q.get('mode')));
 requestAnimationFrame(frame);
 

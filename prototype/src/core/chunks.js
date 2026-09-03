@@ -69,6 +69,13 @@ export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal'];
 const POWER_WEIGHTS = [0.26, 0.24, 0.2, 0.15, 0.15];
 export const VARIANTS = 4;                           // visual variants per obstacle type (renderer picks props)
 
+/** Difficulty presets chosen on the start screen. `hazard` scales row density, `power` the pickup rate. */
+export const DIFFICULTY = {
+  easy:   { id: 'easy',   jp: '易', en: 'Easy',   hazard: 0.6,  speedBase: 11, speedMax: 24, recover: 0.85, drift: 0.28, power: 1.4, throws: 0.7 },
+  normal: { id: 'normal', jp: '普通', en: 'Normal', hazard: 1.0,  speedBase: 13, speedMax: 30, recover: 0.6,  drift: 0.45, power: 1.0, throws: 1.0 },
+  hard:   { id: 'hard',   jp: '難', en: 'Hard',   hazard: 1.25, speedBase: 15, speedMax: 34, recover: 0.45, drift: 0.62, power: 0.7, throws: 1.4 },
+};
+
 export const TUNING = {
   hazardsMin: [0, 1],      // [at diff 0, at diff 1]
   hazardsMax: [1, 2],
@@ -85,12 +92,12 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 function smoothstep(e0, e1, x) { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
 
 /** Breathing difficulty: a base ramp modulated by a tension/release wave. */
-export function difficultyAt(seed, index) {
+export function difficultyAt(seed, index, cfg = DIFFICULTY.normal) {
   const period = 5 + (mixSeed(seed, 0xbeef) % 3); // 5..7, fixed per seed
   const base = Math.min(1, 0.2 + 0.8 * (1 - Math.exp(-index / 32)));
   const phase = (index % period) / period;
   const wave = phase < 0.7 ? smoothstep(0, 0.7, phase) : 1 - smoothstep(0.7, 1, phase);
-  return { diff: base * (0.55 + 0.45 * wave), wave, base, period };
+  return { diff: Math.min(1, base * (0.55 + 0.45 * wave) * cfg.hazard), wave, base, period };
 }
 
 const passable = (mask, lane) => !BLOCKING.has(mask[lane]);
@@ -140,7 +147,7 @@ function weightedPick(rng, items, weights) {
 }
 
 /** One track's worth of rows and cells. Pure in (seed, index, track). */
-function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set()) {
+function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal) {
   const rng = mulberry32(mixSeed(mixSeed(seed, index), 0x7a + track));
   const cells = [], rows = [];
   const release = wave < TUNING.releaseBelow && index > 2;
@@ -187,7 +194,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
           const kinds = kaiju.throws.filter(k => k !== 'wave');
           const kind = rng.pick(kinds);
           if (kind === 'wide') { const left = rng.int(0, LANES - 2); mask[left] = mask[left + 1] = 'wide'; mask.wideLeft = left; }
-          else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.35)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
+          else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.35 * cfg.throws)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
         }
         tries++;
       } while (!stepReach(mask, reach, prev) && tries < 12);
@@ -252,7 +259,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
       if (free.length) { const l = rng.pick(free); for (let i = 0; i < 3; i++) cells.push({ z: zb + 1 + i * 1.6, lane: l, track, type: 'photon' }); }
     }
   }
-  if (index > 1 && rng.chance(TUNING.powerChance)) {
+  if (index > 1 && rng.chance(Math.min(0.9, TUNING.powerChance * cfg.power))) {
     const b = rng.int(1, BEATS - 2); const free = freeLanes(rows[b]);
     if (free.length) cells.push({ z: z0 + b * BEAT_LEN + 3, lane: rng.pick(free), track, type: 'power', kind: weightedPick(rng, POWERS, POWER_WEIGHTS), v: v() });
   }
@@ -263,14 +270,14 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
  * Pure: (seed, index) -> Chunk with both tracks. The last beat of every track is
  * always clear (the "breath beat"), so chunks never depend on each other.
  */
-export function generate(seed, index) {
-  const { diff, wave } = difficultyAt(seed, index);
+export function generate(seed, index, cfg = DIFFICULTY.normal) {
+  const { diff, wave } = difficultyAt(seed, index, cfg);
   const z0 = index * CHUNK_LEN;
   const kaiju = kaijuOf(index);
   const waveBeats = new Set();
   if (kaiju && kaiju.throws.includes('wave')) { const r = mulberry32(mixSeed(seed, index) ^ 0x3a7e); waveBeats.add(r.int(1, 3)); }
   const tracks = [];
-  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats));
+  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats, cfg));
   const cells = tracks.flatMap(t => t.cells).sort((a, b) => a.z - b.z);
   return { index, z0, length: CHUNK_LEN, difficulty: diff, wave, release: tracks[0].release, wall: tracks.some(t => t.wall),
     biome: biomeOf(index), season: seasonOf(index), kaiju, cells, rows: tracks.map(t => t.rows) };
@@ -282,12 +289,12 @@ export function generate(seed, index) {
  * renderer move pooled meshes without allocating.
  */
 export class ChunkPool {
-  constructor(seed, { ahead = 6, behind = 1, onRecycle = null } = {}) {
-    this.seed = seed; this.ahead = ahead; this.behind = behind; this.onRecycle = onRecycle;
+  constructor(seed, { ahead = 6, behind = 1, onRecycle = null, cfg = DIFFICULTY.normal } = {}) {
+    this.seed = seed; this.ahead = ahead; this.behind = behind; this.onRecycle = onRecycle; this.cfg = cfg;
     this.live = []; this.nextIndex = 0;
     for (let i = 0; i < ahead + behind + 1; i++) this._spawn();
   }
-  _spawn() { const c = generate(this.seed, this.nextIndex++); this.live.push(c); return c; }
+  _spawn() { const c = generate(this.seed, this.nextIndex++, this.cfg); this.live.push(c); return c; }
   /** Advance the window so `z` sits at slot `behind`. Returns recycled count. */
   update(z) {
     let n = 0;

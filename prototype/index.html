@@ -49,6 +49,11 @@
   .mode b { display: block; font-size: 22px; letter-spacing: .12em; margin-bottom: 4px; } .mode small { display: block; font-size: 12px; opacity: .8; line-height: 1.5; }
   .mode kbd { margin-right: 4px; }
   .keys { font-size: 12px; opacity: .85; line-height: 2; }
+  .diff { display: flex; gap: 8px; justify-content: center; align-items: center; margin: 14px 0 4px; font-size: 11px; letter-spacing: .25em; text-transform: uppercase; opacity: .9; }
+  .diff span { margin-right: 6px; opacity: .7; }
+  .dbtn { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); color: var(--ink); border-radius: 20px; padding: 6px 14px; font: inherit; font-size: 13px; letter-spacing: .08em; cursor: pointer; text-transform: none; }
+  .dbtn.on { border-color: var(--amber); background: rgba(255,179,71,.18); color: #fff; }
+  .dbtn:focus-visible { outline: 2px solid var(--amber); }
   kbd { display: inline-block; border: 1px solid rgba(255,255,255,.35); border-radius: 4px; padding: 0 6px; margin: 0 2px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: rgba(255,255,255,.06); }
   #msgFoot { font-size: 12px; opacity: .7; margin-top: 8px; }
   #hint { position: absolute; bottom: 30px; left: 0; right: 0; text-align: center; font-size: 11px; letter-spacing: .15em; opacity: .5; }
@@ -78,11 +83,14 @@
   <div class="card">
     <h1>KITSUNE<small>狐 · 四季を駆ける</small></h1>
     <p id="msgBody">A fox spirit and a tanuki run the old road from the mountain shrines through the city, the suburbs and the coast, as the seasons turn.<br>A typhoon follows. Keep the pair ahead of it.</p>
+    <div class="diff" id="diff"><span>difficulty</span>
+      <button class="dbtn" data-diff="easy">易 Easy</button><button class="dbtn on" data-diff="normal">普通 Normal</button><button class="dbtn" data-diff="hard">難 Hard</button>
+    </div>
     <div class="modes" id="modes">
       <button class="mode" data-mode="1"><b><kbd>1</kbd> 1 PLAYER</b><small>You are the fox. The tanuki spirit runs beside you on its own — its mistakes never cost you.<br>Arrows or WASD · Space jump</small></button>
       <button class="mode" data-mode="2"><b><kbd>2</kbd> 2 PLAYERS</b><small>Share a keyboard: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> tanuki (left half), arrows fox (right half). Cross over and barge each other — one typhoon for both.</small></button>
     </div>
-    <div class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall &nbsp; <kbd>R</kbd> restart &nbsp; swipe on touch (left half = tanuki, right half = fox in 2P)</div>
+    <div class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall &nbsp; <kbd>R</kbd> restart &nbsp; <kbd>1</kbd>/<kbd>2</kbd> mode &nbsp; swipe on touch (left half = tanuki, right half = fox in 2P)</div>
     <div id="msgFoot"></div>
   </div>
 </div>

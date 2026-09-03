@@ -1,6 +1,6 @@
 // One runner: fixed-tick, buffered inputs, coyote time, variable-height jump,
 // eased lane changes. Forward motion belongs to the World (both runners share it).
-import { LANES, LANES_TOTAL, trackOf } from './chunks.js';
+import { LANES, LANES_TOTAL, trackOf, DIFFICULTY } from './chunks.js';
 
 export const P = {
   LANE_T: 0.15,
@@ -24,8 +24,9 @@ export const P = {
 };
 
 /** Shared run speed by distance: fast from the first step, 30 m/s by ~2.5 km. */
-export function speedAt(distance) {
-  return Math.min(P.SPEED_MAX, P.SPEED_BASE + 6.5 * Math.log2(1 + distance / 350));
+export function speedAt(distance, cfg = DIFFICULTY.normal) {
+  const base = cfg.speedBase ?? P.SPEED_BASE, max = cfg.speedMax ?? P.SPEED_MAX;
+  return Math.min(max, base + (max - base) * 0.38 * Math.log2(1 + distance / 350));
 }
 
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);

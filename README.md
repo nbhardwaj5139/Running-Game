@@ -4,7 +4,7 @@
 
 **Play it:** `npm install && npm run dev` → http://localhost:8080 — pick **1 Player** (you are the fox; the tanuki spirit runs beside you) or **2 Players** (WASD tanuki, arrows fox, one keyboard). The two can cross into each other's half of the road and **barge** each other.
 
-Docs: [`docs/KITSUNE_GDD.md`](docs/KITSUNE_GDD.md) (the current design), [`docs/RENDER_API.md`](docs/RENDER_API.md) (renderer module contract), [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) + [`docs/TECHNICAL_BLUEPRINT.md`](docs/TECHNICAL_BLUEPRINT.md) (the original VITREOUS concept and multiplayer designs this grew from).
+Docs: [`docs/KITSUNE_GDD.md`](docs/KITSUNE_GDD.md) (the current design), [`docs/SPLINE_TRACK_ARCHITECTURE.md`](docs/SPLINE_TRACK_ARCHITECTURE.md) (curved/elevated/split track architecture with Unity C# scripts), [`docs/RENDER_API.md`](docs/RENDER_API.md) (renderer module contract), [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) + [`docs/TECHNICAL_BLUEPRINT.md`](docs/TECHNICAL_BLUEPRINT.md) (the original VITREOUS concept and multiplayer designs this grew from).
 
 ## What's in the prototype
 - **Sim** (`prototype/src/core/`): one six-lane road made of two solvable home tracks; kaiju encounters before every season change (Daidarabotchi, Umibōzu, Gashadokuro, Yuki-Oni throw boulders, boats, bones and ice onto the road, plus full-width waves to jump); obstacles stalk / arch / drusen / gap / wide / roller; torii walls; powers (Kitsune Shield, Tanuki Magnet, Wind Kami Dash, Daruma ×2, Sakura Heal); a shared typhoon margin; falls respawn; runner-vs-runner barging; an autopilot companion; deterministic replay.

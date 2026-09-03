@@ -16,8 +16,8 @@ export const P = {
   COYOTE_T: 0.08,
   STUMBLE_T: 1.0,
   STUMBLE_MULT: 0.72,
-  SPEED_MAX: 30,
-  SPEED_BASE: 13,
+  SPEED_MAX: 22,
+  SPEED_BASE: 11,
   DASH_T: 3.5,            // Wind Kami dash: invulnerable, clears everything in its path
   MAGNET_T: 10,
   INVULN_T: 1.2,          // grace after a fall
@@ -26,7 +26,7 @@ export const P = {
 /** Shared run speed by distance: fast from the first step, 30 m/s by ~2.5 km. */
 export function speedAt(distance, cfg = DIFFICULTY.normal) {
   const base = cfg.speedBase ?? P.SPEED_BASE, max = cfg.speedMax ?? P.SPEED_MAX;
-  return Math.min(max, base + (max - base) * 0.38 * Math.log2(1 + distance / 350));
+  return Math.min(max, base + (max - base) * 0.38 * Math.log2(1 + distance / 700));
 }
 
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
@@ -47,6 +47,7 @@ export class Player {
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
     this.laneTime = P.LANE_T; this.stumbleScale = 1;   // set by the world from the weather
+    this.laneMin = 0; this.laneMax = LANES_TOTAL - 1;
   }
 
   /** evt: {kind:'jump'|'slide'|'lane'|'jumpRelease', dir?} — stamped with the current tick. */
@@ -70,7 +71,7 @@ export class Player {
     // --- lane change ---
     const bl = this.buffered.lane;
     if (this._fresh(bl) && (this.laneT >= 1 || this.laneT > 0.6)) {
-      const target = Math.max(0, Math.min(LANES_TOTAL - 1, this.lane + bl.dir));
+      const target = Math.max(this.laneMin, Math.min(this.laneMax, this.lane + bl.dir));
       if (target !== this.lane) { this.laneFromX = this.xLane; this.lane = target; this.laneT = 0; }
       this.buffered.lane = null;
     } else if (bl && !this._fresh(bl)) this.buffered.lane = null;

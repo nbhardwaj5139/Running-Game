@@ -14,7 +14,9 @@ Docs: [`docs/KITSUNE_GDD.md`](docs/KITSUNE_GDD.md) (the current design), [`docs/
 - **Render** (`prototype/src/render/`): 65 procedural Japanese obstacle variants, fox and tanuki rigs, scenery for mountain / city / suburb / coast across four seasons, a wet-asphalt/flagstone/sand ground shader with puddle reflections and snow, a Shinkai-style sky (cumulus, comet, god rays, lens flare), instanced wind-swayed grass and flowers, seasonal particles (petals, tumbling leaves, snow, fireflies, rain, wind ribbons), bloom + anime grade.
 - **Tests** (`tests/`): 240,000-track solvability sweep, replay determinism, powers, barging, autopilot.
 
-`?seed=NAME` fixes the road (default: Seed of the Day), `?mode=1|2` skips the start screen, `?bloom=0` disables post-processing, `?reduced=1` for reduced motion.
+**Start screen**: pick a character for each road (live previews), Easy / Normal / Hard, and **God mode** (never die, see the whole journey). Single player runs a centred three-lane road; two players share the six-lane road. Esc/P pauses. Every hit tells you what you ran into and which move clears it.
+
+`?seed=NAME` fixes the road (default: Seed of the Day), `?mode=1|2` skips the start screen, `?god=1` for god mode, `?bloom=0` disables post-processing, `?reduced=1` for reduced motion.
 
 `server/` is the Shared Nerve multiplayer server from the earlier single-runner build; it is not wired into the two-runner prototype.
 

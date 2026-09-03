@@ -76,7 +76,7 @@ export class InstancePool {
 
 const _M = new THREE.Matrix4(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _S = new THREE.Vector3(), _E = new THREE.Euler(), _Q2 = new THREE.Quaternion();
 /** The track mapper: when set (by the renderer), every placement in track space (x across, y up, z along) becomes world space. */
-export const TRACK = { map: null };
+export const TRACK = { map: null, shift: 0 };   // shift: x offset applied by the renderer's mapper (solo centres the fox's three lanes)
 /** Compose a (shared, reused) matrix: position, uniform-or-per-axis scale, yaw — in track space, mapped through the track. Copy it if you keep it. */
 export function compose(x, y, z, sx = 1, sy = sx, sz = sx, ry = 0) {
   if (TRACK.map) { TRACK.map(x, y, z, ry, _V, _Q); return _M.compose(_V, _Q, _S.set(sx, sy, sz)); }

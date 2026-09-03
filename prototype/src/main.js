@@ -4,7 +4,8 @@ import { normalizeSeed } from './core/rng.js';
 import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
-import { CHARACTERS, characterById } from './render/characters.js';
+import { CHARACTERS, characterById, buildCharacter } from './render/characters.js';
+import * as THREE from 'three';
 
 const q = new URLSearchParams(location.search);
 const seedParam = q.get('seed') || new Date().toISOString().slice(0, 10);   // Seed of the Day by default
@@ -13,20 +14,45 @@ const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-m
 
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
-  quit: $('quit'), pause: $('pause'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
+  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
 const POWER_NAMES = { shield: '御守 KITSUNE SHIELD', magnet: '狸の磁力 TANUKI MAGNET', dash: '風神 WIND KAMI DASH', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL' };
 
-let world, renderer, running = false, mode = 0, difficulty = 'normal';
+let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
 let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
 try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
 if (DIFFICULTY[q.get('diff')]) difficulty = q.get('diff');
+try { god = localStorage.getItem('kitsune.god') === '1'; } catch {}
+if (q.get('god') === '1') god = true;
+const godBox = document.getElementById('god'); godBox.checked = god;
+godBox.addEventListener('change', () => { god = godBox.checked; try { localStorage.setItem('kitsune.god', god ? '1' : '0'); } catch {} if (world) world.opts.invincible = god; document.getElementById('godChip').style.display = god ? '' : 'none'; });
+document.getElementById('godChip').style.display = god ? '' : 'none';
 if (!DIFFICULTY[difficulty]) difficulty = 'normal';
 // ---- characters: chars[0] runs the left track (companion / player 2), chars[1] the right (you / player 1)
 let chars = ['tanuki', 'kitsune'];
 try { const c = JSON.parse(localStorage.getItem('kitsune.chars') || 'null'); if (Array.isArray(c) && c.length === 2) chars = c; } catch {}
 if (q.get('p1')) chars[1] = q.get('p1'); if (q.get('p2')) chars[0] = q.get('p2');
 chars = chars.map(id => characterById(id).id);
+// ---- start-screen previews: a tiny scene per slot with the chosen rig turning slowly
+const previews = [0, 1].map(slot => {
+  const canvas = document.getElementById('prev' + slot);
+  const gl = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); gl.setPixelRatio(Math.min(devicePixelRatio, 2)); gl.setSize(150, 150, false); gl.toneMapping = THREE.ACESFilmicToneMapping;
+  const scene = new THREE.Scene(); const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 20); cam.position.set(0, 0.9, 2.6); cam.lookAt(0, 0.45, 0);
+  scene.add(new THREE.HemisphereLight(0xfff0e0, 0x6a5a70, 1.2)); const key = new THREE.DirectionalLight(0xffd8b0, 2.2); key.position.set(1.5, 2.5, 2); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x9fc8ff, 1.2); rim.position.set(-2, 1.5, -2); scene.add(rim);
+  return { gl, scene, cam, rig: null, id: null };
+});
+function setPreview(slot, id) {
+  const pv = previews[slot]; if (pv.id === id) return; pv.id = id;
+  if (pv.rig) pv.scene.remove(pv.rig.group);
+  pv.rig = buildCharacter(id, (hex) => new THREE.MeshStandardMaterial({ color: hex, roughness: 0.6 })); pv.scene.add(pv.rig.group);
+}
+let previewPhase = 0;
+function drawPreviews(dt) {
+  previewPhase += dt;
+  for (const pv of previews) { if (!pv.rig) continue; pv.rig.group.rotation.y = previewPhase * 0.9; pv.rig.legs.forEach((l, i) => { l.rotation.x = Math.sin(previewPhase * 6 + (i % 2 ? Math.PI : 0)) * 0.5; }); pv.gl.render(pv.scene, pv.cam); }
+}
 function renderCharacterPickers() {
+  setPreview(0, chars[0]); setPreview(1, chars[1]);
   for (const slot of [0, 1]) {
     const row = document.getElementById('chars' + slot); row.innerHTML = '';
     for (const c of CHARACTERS) {
@@ -51,9 +77,14 @@ setDifficulty(difficulty);
 
 function newWorld() {
   world = new World(seed, {
-    reducedMotion, difficulty, solo: mode === 1, autopilot: [],
+    reducedMotion, difficulty, solo: mode === 1, autopilot: [], invincible: god,
     onEvent: (e) => {
       renderer?.onEvent(e);
+      if ((e.type === 'stumble' || e.type === 'fall') && !e.free && e.cell) {
+        const VERB = { arch: 'slide under it', drusen: 'jump over it', wave: 'jump the wave', gap: 'jump the gap', stalk: 'change lane', wide: 'take the free lane', roller: 'let it pass' };
+        const NAME = { arch: 'a gate', drusen: 'a low block', wave: 'a shockwave', gap: 'a hole', stalk: 'a post', wide: 'a wide block', roller: 'a roller' };
+        hud.hit.innerHTML = `−${e.cost ?? 0} m · hit ${NAME[e.cell.type] || e.cell.type}${e.cell.thrown ? ' (thrown)' : ''} — <b>${VERB[e.cell.type] || ''}</b>`; hud.hit.classList.add('on'); hitT = 2.2;
+      }
       if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
       if (e.type === 'power') { hud.power.textContent = POWER_NAMES[e.kind] || e.kind; hud.power.classList.add('on'); powerT = 1.4; }
       if (e.type === 'section') showSection(e.season, e.biome, true, e.province);
@@ -149,6 +180,7 @@ function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (running) { acc += dt; while (acc >= W.TICK) { world.step(); acc -= W.TICK; } }
   renderer.render(dt);
+  if (!running && !paused) drawPreviews(dt);
 
   hud.dist.textContent = Math.floor(world.distance) + ' m';
   hud.score.textContent = Math.floor(world.score);
@@ -165,6 +197,7 @@ function frame(now) {
   }
   if (toastT > 0 && (toastT -= dt) <= 0) hud.toast.classList.remove('on');
   if (powerT > 0 && (powerT -= dt) <= 0) hud.power.classList.remove('on');
+  if (hitT > 0 && (hitT -= dt) <= 0) hud.hit.classList.remove('on');
 }
 
 newWorld();

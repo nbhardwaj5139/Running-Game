@@ -32,7 +32,7 @@ export class World {
     this.seed = seed; this.opts = opts;
     this.cfg = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.runners = [new Player(0), new Player(1)];
-    if (opts.solo) this.runners[0].disabled = true;      // single player: the fox runs alone
+    if (opts.solo) { this.runners[0].disabled = true; this.runners[1].laneMin = LANES; }      // single player: the fox runs alone on a three-lane road
     this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, cfg: this.cfg, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
     this.distance = 0; this.speed = speedAt(0, this.cfg);
     this.storm = W.STORM_START;
@@ -84,9 +84,9 @@ export class World {
     if (wx !== this.weather) { this.weather = wx; this._emit({ type: 'weather', weather: wx }); }
     for (const r of this.runners) { r.laneTime = 0.15 * wx.laneT; r.stumbleScale = wx.stumble; }
     if (wx.gust > 0) {
-      if (!this.gust && this.time >= this.nextGust) { this.gust = { dir: this.gustRng.chance(0.5) ? -1 : 1, at: this.time + 0.8 }; this._emit({ type: 'gust.telegraph', dir: this.gust.dir, inSeconds: 0.8 }); }
+      if (!this.gust && this.time >= this.nextGust) { this.gust = { dir: this.gustRng.chance(0.5) ? -1 : 1, at: this.time + 1.3 }; this._emit({ type: 'gust.telegraph', dir: this.gust.dir, inSeconds: 1.3 }); }
       if (this.gust && this.time >= this.gust.at) {
-        for (const r of this.runners) if (!r.disabled) { const t = r.lane + this.gust.dir; if (t >= 0 && t < LANES_TOTAL) { r.laneFromX = r.xLane; r.lane = t; r.laneT = 0; } }
+        for (const r of this.runners) if (!r.disabled) { const t = r.lane + this.gust.dir; if (t >= r.laneMin && t <= r.laneMax) { r.laneFromX = r.xLane; r.lane = t; r.laneT = 0; } }
         this._emit({ type: 'gust', dir: this.gust.dir }); this.gust = null; this.nextGust = this.time + wx.gust * (0.7 + 0.6 * this.gustRng());
       }
     } else { this.gust = null; this.nextGust = this.time + 4; }
@@ -137,7 +137,7 @@ export class World {
     }
 
     // --- the typhoon ---
-    const pressure = this.cfg.drift * Math.min(1, this.distance / 2500) * this.weather.pressure * (this.setpiece === 'avalanche' ? 2.2 : 1);
+    const pressure = this.cfg.drift * Math.min(1, Math.max(0, this.distance - 1200) / 3000) * this.weather.pressure * (this.setpiece === 'avalanche' ? 2.2 : 1);   // no passive drain in the first 1.2 km
     const clean = this.runners.every(r => r.disabled || r.stumbleT === 0);
     this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - pressure * dt);
     if (this.storm <= 0) this._die('storm');
@@ -217,7 +217,7 @@ export class World {
     if (this._isAuto(p)) { this._emit({ type: 'stumble', cell, runner: p.id, free: true }); return; }
     this.streak = 0;
     this.storm -= cost;
-    this._emit({ type: 'stumble', cell, runner: p.id });
+    this._emit({ type: 'stumble', cell, runner: p.id, cost });
     if (this.storm <= 0) this._die('storm', cell);
   }
 
@@ -234,7 +234,7 @@ export class World {
     if (this._isAuto(p)) { this._emit({ type: 'fall', cell, runner: p.id, free: true }); return; }
     this.streak = 0;
     this.storm -= W.STORM_FALL;
-    this._emit({ type: 'fall', cell, runner: p.id });
+    this._emit({ type: 'fall', cell, runner: p.id, cost: W.STORM_FALL });
     if (this.storm <= 0) this._die('fall', cell);
   }
 

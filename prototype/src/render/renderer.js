@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, LANES, TRACK_W, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt } from '../core/chunks.js';
+import { LANE_W, LANES, TRACK_W, ROAD_HALF, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt, surfaceOf } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
@@ -143,7 +143,8 @@ export class Renderer {
 
     // the track spline maps track space (x across, h up, s along) to world space; everything is placed through it
     this.track = new Track(world.seed);
-    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x, h, z, ry, outPos, outQuat);
+    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x + TRACK.shift, h, z, ry, outPos, outQuat);
+    this.solo = !!world.opts.solo; TRACK.shift = this.solo ? -trackX(1) : 0;   // solo: the fox's half becomes the whole road, centred
     this.stage = new THREE.Group(); s.add(this.stage);
     this.root = new THREE.Group(); this.stage.add(this.root);
     this.fxGroup = new THREE.Group(); s.add(this.fxGroup);        // particle fields ride the runners' frame
@@ -235,7 +236,7 @@ export class Renderer {
     this.scenery = buildScenery(this.root, (text, color, vertical) => {
       const t = neonTexture(text, color, vertical);
       const m = new THREE.Mesh(new THREE.PlaneGeometry(t.image.width / 40, t.image.height / 40), new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide, color: new THREE.Color(1.6, 1.6, 1.6) }));
-      m.userData.neon = true; return m;
+      m.userData.neon = true; m.userData.mirror = true; return m;
     });
     this.grass = makeGrass(this.root); this.flowers = makeFlowers(this.root);
     // kaiju: thrown props, wave lines (one per monster colour), rigs
@@ -290,10 +291,12 @@ export class Renderer {
     const night = nightAt(this.world.distance);
     const floor = this.floorPool.take(); this._bendFloor(floor, c.z0);
     const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = pv.snow ? 0.9 : snowAt(c.index);
+    u.uSurface.value = surfaceOf(this.world.seed, c.index); u.uRoadMin.value = this.solo ? 0 : -ROAD_HALF; u.uRoadMax.value = ROAD_HALF;
     const v = { floor, meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
 
     for (const cell of c.cells) {
+      if (this.solo && cell.track === 0) continue;                       // the other half of the road does not exist in solo
       const x = cellX(cell);
       if (cell.type === 'photon') {
         const y = cell.hi ? 1.7 : 0.75; const i = this.coinPool.take(compose(x, y, cell.z, 1, 1, 1, 0));
@@ -359,7 +362,8 @@ export class Renderer {
   /** Swap to a fresh world (restart) without reallocating anything. */
   reset(world) {
     this.world = world; this.track = new Track(world.seed);
-    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x, h, z, ry, outPos, outQuat);
+    this.solo = !!world.opts.solo; TRACK.shift = this.solo ? -trackX(1) : 0;
+    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x + TRACK.shift, h, z, ry, outPos, outQuat);
     for (const k of [...this.views.keys()]) this._detachChunk({ index: k });
     for (const c of world.pool.live) this._attachChunk(c);
     this.train.visible = false; this.trainTimer = 6;
@@ -401,7 +405,7 @@ export class Renderer {
     const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain);
     // weather → visibility, sky mood, lightning
     const fogK = wx.fog + dread * 0.3;
-    this.scene.fog.near += ((40 - 24 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((260 - 165 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
+    this.scene.fog.near += ((40 - 16 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((260 - 130 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
     if (wx.id === 'thunder' && Math.random() < dt * 0.35) this.thunderT = 1;
     this.thunderT *= Math.exp(-dt * 10);
     for (const v of this.views.values()) { const u = v.floor.material.uniforms; u.uTime.value = this.time; u.uNight.value = night; u.uWet.value = wet; }
@@ -449,12 +453,14 @@ export class Renderer {
     const cam = this.camera;
     const targetFov = 66 + 10 * clamp01((w.speed - P.SPEED_BASE) / (P.SPEED_MAX - P.SPEED_BASE));
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 1.5); cam.updateProjectionMatrix();
+    const act = w.runners.filter(r => !r.disabled);
+    const cxRaw = act.reduce((a, r) => a + roadX(r.xLane), 0) / Math.max(1, act.length);
+    this.camX = (this.camX ?? cxRaw) + (cxRaw - (this.camX ?? cxRaw)) * Math.min(1, dt * 4);   // stays behind the runner, eased
     const fb = this.track.frameAt(Math.max(0, w.distance - 8.5));
     const slope = Math.asin(THREE.MathUtils.clamp(fb.T.y, -1, 1));
-    _V3.copy(fb.P).addScaledVector(fb.N, 5.2 + Math.max(0, -slope) * 4);
+    TRACK.map(this.camX * 0.75, 5.2 + Math.max(0, -slope) * 4, Math.max(0, w.distance - 8.5), 0, _V3);
     const camUp = _V3b.copy(fb.N).lerp(_UP, 0.35).normalize();
-    const fa = this.track.frameAt(w.distance + 22);
-    const aim = _V3c.copy(fa.P).addScaledVector(fa.N, 1.3);
+    TRACK.map(this.camX * 0.45, 1.3, w.distance + 22, 0, _V3c); const aim = _V3c;
     if (!this.camInit) { cam.position.copy(_V3); this.camInit = true; }
     cam.position.lerp(_V3, 1 - Math.exp(-dt * 7));
     _M4.lookAt(cam.position, aim, camUp); _Q1.setFromRotationMatrix(_M4);

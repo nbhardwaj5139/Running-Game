@@ -28,7 +28,7 @@ const vert = /* glsl */`
 const frag = /* glsl */`
   precision highp float;
   #include <fog_pars_fragment>
-  varying vec2 vP;
+  varying vec2 vP; uniform float uSurface, uRoadMin, uRoadMax;
   uniform float uTime, uBiome, uSeason, uSnow, uNight, uWet, uLightN;
   uniform vec4 uLight[${MAX_LIGHTS}]; uniform vec3 uLightCol[${MAX_LIGHTS}];
   ${NOISE_GLSL}
@@ -41,14 +41,15 @@ const frag = /* glsl */`
   }
   void main() {
     vec2 p = vP; float x = p.x, z = p.y, ax = abs(x);
-    float road   = 1.0 - smoothstep(${ROAD_HALF.toFixed(2)} - 0.05, ${ROAD_HALF.toFixed(2)} + 0.1, ax);
+    float road   = smoothstep(uRoadMin - 0.1, uRoadMin + 0.05, x) * (1.0 - smoothstep(uRoadMax - 0.05, uRoadMax + 0.1, x));
+    float de     = min(x - uRoadMin, uRoadMax - x);                                        // signed distance inside the road
     float lb     = abs(fract(x / ${LANE_W.toFixed(2)} + 0.5) - 0.5) * ${LANE_W.toFixed(2)};   // distance to nearest lane boundary (x = ±1.1, ±3.3, ±5.5)
     float lc     = abs(fract(x / ${LANE_W.toFixed(2)}) - 0.5) * ${LANE_W.toFixed(2)};         // distance to nearest lane centre
     float guide  = (1.0 - smoothstep(0.035, 0.08, lb)) * step(0.5, ax) * road;             // subtle lane guides
-    float centre = 1.0 - smoothstep(0.06, 0.12, ax);                                        // painted centre line at x = 0
-    float edge   = 1.0 - smoothstep(0.05, 0.11, abs(ax - ${ROAD_HALF.toFixed(2)}));         // crisp edge line at |x| = 6.6
+    float centre = (1.0 - smoothstep(0.06, 0.12, ax)) * step(uRoadMin, -0.5);               // centre line only when both halves exist
+    float edge   = 1.0 - smoothstep(0.05, 0.11, abs(de));                                  // crisp edge line at the road edges
     float n      = fbm(p * 0.7);
-    float dist   = smoothstep(8.0, 40.0, ax);                                               // verge darkening away from the road
+    float dist   = smoothstep(1.4, 33.0, -de);                                              // verge darkening away from the road
 
     // ---- verge base: season-tinted grass with earth patches
     vec3 gBase = uSeason < 0.5 ? vec3(0.44, 0.64, 0.30) : uSeason < 1.5 ? vec3(0.20, 0.48, 0.17)
@@ -76,6 +77,19 @@ const frag = /* glsl */`
       float ph = hash(vec2(floor(z / 0.7), 0.0));
       float pebble = 1.0 - smoothstep(0.16, 0.23, length(vec2(x, fract(z / 0.7) * 0.7 - 0.35)));
       surf = mix(surf, mix(vec3(0.62, 0.60, 0.56), vec3(0.78, 0.74, 0.66), ph), pebble);
+      if (uSurface > 1.5) {            // cobblestones (shrine stairs and the top): small domed stones
+        vec2 cc = vec2(0.42, 0.36); vec2 cellc = floor(p / cc); vec2 fc = fract(p / cc) - 0.5; float hc = hash(cellc + 7.0);
+        float dome = 1.0 - smoothstep(0.30, 0.5, length(fc) * 1.15);
+        vec3 cob = mix(vec3(0.46, 0.44, 0.42), vec3(0.66, 0.62, 0.56), hc) * (0.7 + 0.5 * dome) * (0.9 + 0.2 * noise(p * 5.0));
+        surf = mix(vec3(0.22, 0.20, 0.18), cob, dome);
+        surf = mix(surf, vec3(0.30, 0.42, 0.20), moss * 0.25 * (1.0 - dome));
+      } else if (uSurface > 0.5) {     // gravel path: fine grit with faint ruts
+        float g1 = noise(p * 9.0), g2 = noise(p * 23.0 + 5.0);
+        vec3 grav = mix(vec3(0.58, 0.55, 0.50), vec3(0.72, 0.69, 0.62), g1) * (0.85 + 0.3 * g2);
+        float rut = 1.0 - smoothstep(0.25, 0.6, min(abs(lc - 0.45), 1.0));
+        surf = mix(grav, grav * 0.85, rut * 0.5);
+        surf = mix(surf, vec3(0.32, 0.42, 0.22), moss * 0.2);
+      }
       surf = mix(surf, vec3(0.40, 0.38, 0.34), edge);                       // kerb stones
       verge = mix(grass, vec3(0.24, 0.36, 0.16) * (0.8 + 0.4 * n), moss * 0.35);
       puddle = 0.2 + 0.3 * uWet;
@@ -92,14 +106,14 @@ const frag = /* glsl */`
       surf = mix(surf, surf * 0.4 + skyRef * 0.6, puddle * 0.85 * road);
       vec3 pave = vec3(0.42, 0.42, 0.44) * (0.8 + 0.3 * n); vec2 pc = fract(p / 0.8);
       pave *= 0.75 + 0.25 * smoothstep(0.0, 0.06, pc.x) * smoothstep(0.0, 0.06, pc.y);
-      float curb = smoothstep(6.6, 6.75, ax) * (1.0 - smoothstep(7.1, 7.25, ax));
+      float curb = smoothstep(0.0, 0.15, -de) * (1.0 - smoothstep(0.5, 0.65, -de));
       verge = (pave + curb * vec3(0.25)) * (1.0 - 0.5 * dist);
     } else if (uBiome < 2.5) {
       // ---- suburb: pale asphalt, dashed yellow centre line, concrete gutters, greener verge
       vec3 asphalt = vec3(0.47, 0.47, 0.48) * (0.8 + 0.4 * n) * (1.0 - 0.2 * uWet);
       float ydash = centre * step(0.5, fract(z / 2.0));
       surf = asphalt + vec3(0.95, 0.75, 0.20) * ydash * 0.9 + vec3(0.85) * (guide * 0.3 + edge * 0.7);
-      float gutter = smoothstep(6.5, 6.65, ax) * (1.0 - smoothstep(7.4, 7.55, ax));
+      float gutter = smoothstep(-0.1, 0.05, -de) * (1.0 - smoothstep(0.8, 0.95, -de));
       vec3 concrete = vec3(0.60, 0.59, 0.56) * (0.9 + 0.2 * n) * (1.0 - 0.5 * (1.0 - smoothstep(0.03, 0.08, abs(ax - 7.0))));
       verge = mix(mix(grass, grass * vec3(0.85, 1.12, 0.80), 0.7), concrete, gutter);
       puddle = 0.15 + 0.35 * uWet;
@@ -165,7 +179,7 @@ export function makeGroundMaterial() {
   return new THREE.ShaderMaterial({ side: THREE.DoubleSide,
     vertexShader: vert, fragmentShader: frag, fog: true,
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-      uZ0: { value: 0 }, uBent: { value: 0 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
+      uZ0: { value: 0 }, uBent: { value: 0 }, uSurface: { value: 0 }, uRoadMin: { value: -6.6 }, uRoadMax: { value: 6.6 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
       uSnow: { value: 0 }, uNight: { value: 0 }, uWet: { value: 0 }, uLightN: { value: 0 },
       uLight: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()) },
       uLightCol: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Color()) },

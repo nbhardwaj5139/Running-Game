@@ -20,8 +20,8 @@ export const BEAT_LEN = 6;                           // one hazard "row" per bea
 export const BEATS = CHUNK_LEN / BEAT_LEN;
 
 // Sections: the road cycles through biomes; the year turns more slowly.
-export const BIOME_LEN = 8;                          // chunks per biome section (288 m)
-export const SEASON_LEN = 14;                        // chunks per season (504 m) — a full year every 2 km
+export const BIOME_LEN = 12;                         // chunks per biome section (432 m)
+export const SEASON_LEN = 22;                        // chunks per season (792 m) — a full year every 3.2 km
 export const BIOMES = ['mountain', 'city', 'suburb', 'coast'];
 export const SEASONS = ['spring', 'summer', 'fall', 'winter'];
 export const biomeOf = (index) => Math.floor(Math.max(0, index) / BIOME_LEN) % BIOMES.length;
@@ -41,9 +41,15 @@ export const provinceOf = (index) => PROVINCES[Math.floor(Math.max(0, index) / B
 export function shrineClimbPitch(index) {
   const pv = provinceOf(index); if (!pv.shrine) return null;
   const k = index % BIOME_LEN;
-  return [null, 13, 13, 0, -13, -13, 0, null][k] ?? null;
+  return [null, null, 13, 13, 13, 0, -13, -13, -13, 0, null, null][k] ?? null;
 }
-export const shrineTopAt = (index) => provinceOf(index).shrine && index % BIOME_LEN === 3;
+/** Road surface: 0 = the biome's default, 1 = gravel path, 2 = cobblestones (shrine stairs and top). */
+export function surfaceOf(seed, index) {
+  if (biomeOf(index) !== 0) return 0;
+  if (shrineClimbPitch(index) !== null) return 2;
+  return mulberry32(mixSeed(seed ^ 0x5a7f, Math.floor(index / BIOME_LEN))).chance(0.5) ? 1 : 0;
+}
+export const shrineTopAt = (index) => provinceOf(index).shrine && index % BIOME_LEN === 5;
 
 // ---- weather: one state per biome section, drawn from the season. Each state is a challenge.
 export const WEATHER = {
@@ -51,7 +57,7 @@ export const WEATHER = {
   rain:     { id: 'rain',     jp: '雨',   en: 'Rain',         laneT: 1.15, stumble: 1.0, gust: 0,   fog: 0.2, rain: 0.7, pressure: 1.0 },
   thunder:  { id: 'thunder',  jp: '雷雨', en: 'Thunderstorm', laneT: 1.15, stumble: 1.0, gust: 9,   fog: 0.3, rain: 1.0, pressure: 1.3 },
   wind:     { id: 'wind',     jp: '強風', en: 'High wind',    laneT: 1.0,  stumble: 1.0, gust: 6,   fog: 0,   rain: 0,   pressure: 1.0 },
-  fog:      { id: 'fog',      jp: '霧',   en: 'Fog',          laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 1.0, rain: 0,   pressure: 1.0 },
+  fog:      { id: 'fog',      jp: '霧',   en: 'Fog',          laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 0.7, rain: 0,   pressure: 1.0 },
   snow:     { id: 'snow',     jp: '雪',   en: 'Snow',         laneT: 1.3,  stumble: 1.3, gust: 0,   fog: 0.3, rain: 0,   pressure: 1.0 },
   blizzard: { id: 'blizzard', jp: '吹雪', en: 'Blizzard',     laneT: 1.3,  stumble: 1.3, gust: 7,   fog: 0.8, rain: 0,   pressure: 1.2 },
 };
@@ -64,7 +70,7 @@ export function weatherOf(seed, index) {
 }
 // ---- set pieces
 /** A collapsing bridge: chunk 5 of every other coast/mountain section (never a shrine or kaiju chunk). */
-export const bridgeAt = (index) => { const b = biomeOf(index); return (b === 3 || (b === 0 && !provinceOf(index).shrine)) && index % BIOME_LEN === 5 && Math.floor(index / BIOME_LEN) % 2 === 1 && !kaijuOf(index); };
+export const bridgeAt = (index) => { const b = biomeOf(index); return (b === 3 || (b === 0 && !provinceOf(index).shrine)) && index % BIOME_LEN === 7 && Math.floor(index / BIOME_LEN) % 2 === 1 && !kaijuOf(index); };
 /** An avalanche chases the runners down the shrine stairs in winter. */
 export const avalancheAt = (index) => seasonOf(index) === 3 && (shrineClimbPitch(index) ?? 0) < 0;
 export const SETPIECE = {
@@ -117,9 +123,9 @@ export const VARIANTS = 4;                           // visual variants per obst
 
 /** Difficulty presets chosen on the start screen. `hazard` scales row density, `power` the pickup rate. */
 export const DIFFICULTY = {
-  easy:   { id: 'easy',   jp: '易', en: 'Easy',   hazard: 0.6,  speedBase: 11, speedMax: 24, recover: 0.85, drift: 0.28, power: 1.4, throws: 0.7 },
-  normal: { id: 'normal', jp: '普通', en: 'Normal', hazard: 1.0,  speedBase: 13, speedMax: 30, recover: 0.6,  drift: 0.45, power: 1.0, throws: 1.0 },
-  hard:   { id: 'hard',   jp: '難', en: 'Hard',   hazard: 1.25, speedBase: 15, speedMax: 34, recover: 0.45, drift: 0.62, power: 0.7, throws: 1.4 },
+  easy:   { id: 'easy',   jp: '易', en: 'Easy',   hazard: 0.6,  speedBase: 9,  speedMax: 17, recover: 0.85, drift: 0.2,  power: 1.4, throws: 0.7 },
+  normal: { id: 'normal', jp: '普通', en: 'Normal', hazard: 1.0,  speedBase: 11, speedMax: 22, recover: 0.6,  drift: 0.32, power: 1.0, throws: 1.0 },
+  hard:   { id: 'hard',   jp: '難', en: 'Hard',   hazard: 1.25, speedBase: 13, speedMax: 27, recover: 0.45, drift: 0.45, power: 0.7, throws: 1.4 },
 };
 
 export const TUNING = {

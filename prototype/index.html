@@ -9,7 +9,7 @@
 <style>
   :root { color-scheme: dark; --amber: #ffb347; --red: #ff3b4e; --cyan: #7ef0ff; --pink: #ff9fc4; --ink: #f6efe8; }
   html, body { margin: 0; height: 100%; background: #0d0a14; overflow: hidden; font-family: "Zen Kaku Gothic New", "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif; color: var(--ink); -webkit-user-select: none; user-select: none; touch-action: none; }
-  canvas { display: block; position: fixed; inset: 0; z-index: 0; }
+  body > canvas { display: block; position: fixed; inset: 0; z-index: 0; }
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
   .stat { position: absolute; top: 14px; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: .85; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
   .stat b { display: block; font-size: 28px; letter-spacing: 0; line-height: 1; color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 12px rgba(255,159,196,.7); }
@@ -57,6 +57,14 @@
   .cbtn span { display: block; font-size: 10px; opacity: .8; margin-top: 3px; }
   .cbtn.on { border-color: var(--pink); background: rgba(255,159,196,.16); color: #fff; box-shadow: 0 0 12px rgba(255,159,196,.35); }
   .cbtn:focus-visible { outline: 2px solid var(--pink); }
+  .pickrow { display: flex; gap: 10px; align-items: center; justify-content: center; }
+  .preview { position: static; display: block; width: 110px; height: 110px; border-radius: 12px; background: radial-gradient(circle at 50% 35%, rgba(255,200,220,.25), rgba(12,8,20,.2) 70%); border: 1px solid rgba(255,255,255,.15); flex: none; }
+  .god { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-size: 12px; letter-spacing: .05em; text-transform: none; cursor: pointer; }
+  .god small { opacity: .6; font-size: 10px; }
+  .god input { accent-color: var(--amber); }
+  #hit { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); color: #ff9aa6; font-size: 14px; letter-spacing: .12em; text-shadow: 0 1px 4px rgba(0,0,0,.9); opacity: 0; transition: opacity .25s; white-space: nowrap; }
+  #hit.on { opacity: 1; }
+  #hit b { color: #fff; }
   .diff { display: flex; gap: 8px; justify-content: center; align-items: center; margin: 14px 0 4px; font-size: 11px; letter-spacing: .25em; text-transform: uppercase; opacity: .9; }
   .diff span { margin-right: 6px; opacity: .7; }
   .dbtn { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); color: var(--ink); border-radius: 20px; padding: 6px 14px; font: inherit; font-size: 13px; letter-spacing: .08em; cursor: pointer; text-transform: none; }
@@ -84,12 +92,13 @@
   <div class="stat" style="left:16px">distance<b id="dist">0 m</b></div>
   <div class="stat" style="left:50%;transform:translateX(-50%);text-align:center">score<b id="score">0</b></div>
   <div class="stat" style="right:16px;text-align:right">小判 coins<b id="coins">0</b></div>
-  <div id="section"><b id="secJp">春</b><span id="secEn">Spring · Mountain shrine path</span></div>
+  <div id="section"><b id="secJp">春</b><span id="secEn">Spring · Mountain shrine path</span><span id="godChip" style="display:none;margin-left:10px;color:#ffd23f">神 GOD MODE</span></div>
   <div id="x2">×2 DARUMA</div>
   <div id="toast"><b id="toastJp"></b><span id="toastEn"></span></div>
   <div id="power"></div>
   <div class="runner l" id="runner0"><div class="name">狸 TANUKI <span id="who0">spirit companion</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">風 dash</i></div></div>
   <div class="runner r" id="runner1"><div class="name">狐 KITSUNE <span id="who1">you</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">風 dash</i></div></div>
+  <div id="hit"></div>
   <div class="bar" id="storm"><label>台風 TYPHOON</label><i></i></div>
   <div id="hint"></div>
 </div>
@@ -108,11 +117,12 @@
 <div id="msg">
   <div class="card">
     <h1>KITSUNE<small>狐 · 四季を駆ける</small></h1>
-    <p id="msgBody">A fox spirit and a tanuki run the old road from the mountain shrines through the city, the suburbs and the coast, as the seasons turn.<br>A typhoon follows. Keep the pair ahead of it.</p>
-    <div class="pick"><span>you · right road</span><div class="chars" id="chars1"></div></div>
-    <div class="pick"><span>player 2 · left road (2P only)</span><div class="chars" id="chars0"></div></div>
+    <p id="msgBody">A fox spirit runs the old road from Kyoto to Okinawa — shrine stairs, neon cities, snowbound suburbs and coast roads — as the seasons turn.<br>A typhoon follows. Stay ahead of it.</p>
+    <div class="pick"><span>you · right road</span><div class="pickrow"><canvas class="preview" id="prev1" width="150" height="150"></canvas><div class="chars" id="chars1"></div></div></div>
+    <div class="pick"><span>player 2 · left road (2P only)</span><div class="pickrow"><canvas class="preview" id="prev0" width="150" height="150"></canvas><div class="chars" id="chars0"></div></div></div>
     <div class="diff" id="diff"><span>difficulty</span>
       <button class="dbtn" data-diff="easy">易 Easy</button><button class="dbtn on" data-diff="normal">普通 Normal</button><button class="dbtn" data-diff="hard">難 Hard</button>
+      <label class="god"><input type="checkbox" id="god"> 神 God mode <small>never die · see the whole journey</small></label>
     </div>
     <div class="modes" id="modes">
       <button class="mode" data-mode="1"><b><kbd>1</kbd> 1 PLAYER</b><small>You run alone on the open road. Both halves of the road are yours.<br>Arrows or WASD · Space jump</small></button>

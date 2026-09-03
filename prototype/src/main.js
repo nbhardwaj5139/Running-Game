@@ -194,8 +194,8 @@ function frame(now) {
   hud.storm.querySelector('i').style.width = Math.max(0, 100 - (world.storm / W.STORM_MAX) * 100) + '%';
   const dread = 1 - Math.max(0, world.storm) / W.STORM_MAX;
   hud.vig.style.boxShadow = `inset 0 0 ${40 + dread * 220}px ${dread * 60}px rgba(5,0,2,${0.15 + dread * 0.7})`;
-  hud.x2.classList.toggle('on', world.x2T > 0 || world.slowT > 0 || world.dawnT > 0);
-  hud.x2.textContent = world.slowT > 0 ? '雷 SLOW-TIME' : world.dawnT > 0 ? '天照 DAWN' : '×2 DARUMA';
+  hud.x2.classList.toggle('on', world.x2T > 0 || world.dawnT > 0);
+  hud.x2.textContent = world.dawnT > 0 ? '天照 DAWN' : '×2 DARUMA';
   for (const r of world.runners) {
     const el = hud.runners[r.track];
     el.querySelector('.shield').classList.toggle('on', r.shield);

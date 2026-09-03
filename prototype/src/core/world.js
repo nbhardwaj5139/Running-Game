@@ -32,7 +32,7 @@ export class World {
     this.seed = seed; this.opts = opts;
     this.cfg = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.runners = [new Player(0), new Player(1)];
-    if (opts.solo) { this.runners[0].disabled = true; this.runners[1].laneMin = LANES; }      // single player: the fox runs alone on a three-lane road
+    if (opts.solo) this.runners[0].disabled = true;      // single player: the fox runs alone on the same six-lane road
     this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, cfg: this.cfg, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
     this.distance = 0; this.speed = speedAt(0, this.cfg);
     this.storm = W.STORM_START;
@@ -42,7 +42,7 @@ export class World {
     this.log = [];                // inputs for replay/validation
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
-    this.bumpCool = 0; this.kaiju = null; this.setpiece = null; this.slowT = 0; this.dawnT = 0;
+    this.bumpCool = 0; this.kaiju = null; this.setpiece = null; this.dawnT = 0;
     this.weather = weatherOf(seed, 0); this.gustRng = mulberry32(mixSeed(seed, 0x9057)); this.nextGust = 6; this.gust = null;
   }
 
@@ -64,8 +64,7 @@ export class World {
 
     // --- shared forward motion: the pair runs together, a stumble slows both ---
     let mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
-    if (this.runners.some(r => !r.disabled && r.dashT > 0)) mult *= 1.5; else if (this.runners.some(r => !r.disabled && r.jetpackT > 0)) mult *= 1.35;
-    if (this.slowT > 0) { mult *= 0.55; this.slowT = Math.max(0, this.slowT - dt); }
+    if (this.runners.some(r => !r.disabled && r.jetpackT > 0)) mult *= 1.8; else if (this.runners.some(r => !r.disabled && r.dashT > 0)) mult *= 1.55;
     this.dawnT = Math.max(0, this.dawnT - dt);
     this.speed = speedAt(this.distance, this.cfg) * mult;
     const prevZ = this.distance;
@@ -200,7 +199,6 @@ export class World {
     switch (cell.kind) {
       case 'shield': p.shield = true; p.shieldT = P.SHIELD_T; break;
       case 'jetpack': p.jetpackT = P.JETPACK_T; p.stumbleT = 0; break;
-      case 'thunder': this.slowT = 6; break;
       case 'foxfire': p.foxfireT = 8; p.magnetT = Math.max(p.magnetT, 8); break;
       case 'dawn': this.storm = W.STORM_MAX; this.dawnT = 10; break;
       case 'susanoo': this.storm = Math.min(W.STORM_MAX, this.storm + 20); this._sweep(p, 60, 'strike'); break;

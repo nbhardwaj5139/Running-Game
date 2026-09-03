@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World, W, replay } from '../prototype/src/core/world.js';
 import { Player, P, speedAt } from '../prototype/src/core/player.js';
-import { generate, LANES_TOTAL, globalLane, CHUNK_LEN } from '../prototype/src/core/chunks.js';
+import { generate, LANES_TOTAL, globalLane, CHUNK_LEN, BIOME_LEN } from '../prototype/src/core/chunks.js';
 
 const same = (a, b) => !!a && a.z === b.z && a.lane === b.lane && a.track === b.track && a.type === b.type;
 const run = (w, ticks) => { for (let i = 0; i < ticks && w.alive; i++) w.step(); };
@@ -71,8 +71,8 @@ test('replay reproduces a scripted run exactly; section events fire', () => {
   for (let i = 0; i < 60 * 30 && w.alive; i++) { if (i % 37 === 0) w.input(1, { kind: ['lane', 'jump', 'slide'][i % 3], dir: i % 2 ? 1 : -1 }); if (i % 53 === 0) w.input(0, { kind: 'jump' }); w.step(); }
   assert.deepEqual(replay(21, w.log, 60 * 30), w.summary);
   const far = new World(22, { invincible: true }); const s2 = []; far.opts.onEvent = e => { if (e.type === 'section') s2.push(e); };
-  run(far, 60 * 70); assert.ok(far.distance > BIOME_LEN_M() , 'ran past the first section'); assert.ok(s2.length >= 1 && s2[0].biome === 1);
-  function BIOME_LEN_M() { return 12 * CHUNK_LEN; }
+  run(far, 60 * 75); assert.ok(far.distance > BIOME_LEN_M() , 'ran past the first section'); assert.ok(s2.length >= 1 && s2[0].biome === 1);
+  function BIOME_LEN_M() { return BIOME_LEN * CHUNK_LEN; }
 });
 
 test('barging: a moving runner shoves the other one lane; edge bounces; jumping over is free; cooldown', () => {

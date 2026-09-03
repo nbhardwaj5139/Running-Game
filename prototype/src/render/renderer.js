@@ -122,7 +122,8 @@ export class Renderer {
   constructor(canvasParent, world, opts = {}) {
     this.world = world; this.opts = opts; this.time = 0; this.phase = 0;
     const gl = this.gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    gl.setPixelRatio(Math.min(devicePixelRatio, 2)); gl.setSize(innerWidth, innerHeight);
+    this.basePR = Math.min(devicePixelRatio, opts.hq ? 2 : 1.5); this.scale = 1; this.frameEma = 1 / 60; this.slowFor = 0; this.fastFor = 0;
+    gl.setPixelRatio(this.basePR); gl.setSize(innerWidth, innerHeight);
     gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92;
     canvasParent.appendChild(gl.domElement);
 
@@ -145,7 +146,7 @@ export class Renderer {
     // the track spline maps track space (x across, h up, s along) to world space; everything is placed through it
     this.track = new Track(world.seed);
     TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x + TRACK.shift, h, z, ry, outPos, outQuat);
-    this.solo = !!world.opts.solo; TRACK.shift = this.solo ? -trackX(1) : 0;   // solo: the fox's half becomes the whole road, centred
+    this.solo = !!world.opts.solo; TRACK.shift = 0;                          // the road is the same six lanes in 1P and 2P
     this.stage = new THREE.Group(); s.add(this.stage);
     this.root = new THREE.Group(); this.stage.add(this.root);
     this.fxGroup = new THREE.Group(); s.add(this.fxGroup);        // particle fields ride the runners' frame
@@ -168,9 +169,9 @@ export class Renderer {
         float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
         float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.1; a *= 0.5; } return v; }
         void main(){ float n = fbm(vUv * vec2(6.0, 3.0) + vec2(uTime * 0.08, 0.0));
-          float a = smoothstep(0.05, 0.42, vUv.y + (n - 0.5) * 0.45);
+          float a = smoothstep(0.12, 0.5, vUv.y + (n - 0.5) * 0.4);
           vec3 col = mix(vec3(0.02,0.02,0.05), vec3(0.09,0.085,0.14), n) + uFlash * vec3(0.45,0.5,0.7);
-          gl_FragColor = vec4(col, a * 0.97); }`,
+          gl_FragColor = vec4(col, a * 0.85); }`,
     })); this.storm.renderOrder = 10; this.storm.position.set(0, 34, -18); this.camera.add(this.storm);
     this.flash = 0; this.shake = 0; this.roll = 0;
 
@@ -181,9 +182,10 @@ export class Renderer {
     this.themeNow = null;
 
     // post: bloom for glow, then a light anime grade
-    this.composer = new EffectComposer(gl); this.composer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.composer = new EffectComposer(gl); this.composer.setPixelRatio(this.basePR);
     this.composer.addPass(new RenderPass(s, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.42, 0.32, 1.0);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.32, 1.0);
+    const bloomSetSize = this.bloom.setSize.bind(this.bloom); this.bloom.setSize = (w, h) => bloomSetSize(w / 2, h / 2);   // bloom at half resolution: the blur hides it, the GPU thanks you
     if (opts.bloom !== false) this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GRADE); if (opts.bloom !== false) this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
@@ -215,6 +217,18 @@ export class Renderer {
   }
 
   resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); this.gl.setSize(innerWidth, innerHeight); this.composer.setSize(innerWidth, innerHeight); }
+  /** Render scale 0.5..1 of the base pixel ratio (adaptive: drops when frames run long, climbs back when they are quick). */
+  setScale(s) {
+    s = Math.max(0.5, Math.min(1, s)); if (Math.abs(s - this.scale) < 0.01) return; this.scale = s;
+    this.gl.setPixelRatio(this.basePR * s); this.composer.setPixelRatio(this.basePR * s); this.resize();
+  }
+  _adapt(dt) {
+    if (this.opts.fixedScale) return;
+    this.frameEma += (dt - this.frameEma) * 0.1;
+    if (this.frameEma > 1 / 40) { this.slowFor += dt; this.fastFor = 0; if (this.slowFor > 1.2) { this.setScale(this.scale - 0.15); this.slowFor = 0; } }
+    else if (this.frameEma < 1 / 56) { this.fastFor += dt; this.slowFor = 0; if (this.fastFor > 8 && this.scale < 1) { this.setScale(this.scale + 0.1); this.fastFor = 0; } }
+    else { this.slowFor = Math.max(0, this.slowFor - dt); }
+  }
 
   // ---------------------------------------------------------------- assets
   _buildAssets() {
@@ -303,12 +317,11 @@ export class Renderer {
     const night = nightAt(this.world.distance);
     const floor = this.floorPool.take(); this._bendFloor(floor, c.z0);
     const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = pv.snow ? 0.9 : snowAt(c.index);
-    u.uSurface.value = surfaceOf(this.world.seed, c.index); u.uRoadMin.value = this.solo ? 0 : -ROAD_HALF; u.uRoadMax.value = ROAD_HALF;
+    u.uSurface.value = surfaceOf(this.world.seed, c.index); u.uRoadMin.value = -ROAD_HALF; u.uRoadMax.value = ROAD_HALF;
     const v = { floor, meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
 
     for (const cell of c.cells) {
-      if (this.solo && cell.track === 0) continue;                       // the other half of the road does not exist in solo
       const x = cellX(cell);
       if (cell.type === 'photon') {
         const y = cell.hi ? 1.7 : 0.75; const i = this.coinPool.take(compose(x, y, cell.z, 1, 1, 1, 0));
@@ -376,7 +389,7 @@ export class Renderer {
   /** Swap to a fresh world (restart) without reallocating anything. */
   reset(world) {
     this.world = world; this.track = new Track(world.seed);
-    this.solo = !!world.opts.solo; TRACK.shift = this.solo ? -trackX(1) : 0;
+    this.solo = !!world.opts.solo; TRACK.shift = 0;
     TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x + TRACK.shift, h, z, ry, outPos, outQuat);
     for (const k of [...this.views.keys()]) this._detachChunk({ index: k });
     for (const c of world.pool.live) this._attachChunk(c);
@@ -412,7 +425,7 @@ export class Renderer {
 
   // ---------------------------------------------------------------- frame
   render(dt) {
-    const w = this.world; this.time += dt;
+    const w = this.world; this.time += dt; this._adapt(dt);
     const idx = Math.floor(w.distance / CHUNK_LEN); const biome = biomeOf(idx), season = seasonOf(idx);
     const seasonT = (idx % SEASON_LEN) / SEASON_LEN; const pv = provinceOf(idx); const vSeason = pv.snow ? 3 : season;
     const night = nightAt(w.distance) * (w.dawnT > 0 ? Math.max(0, 1 - w.dawnT / 2.5) : 1);   // Amaterasu: the sun comes up
@@ -427,8 +440,8 @@ export class Renderer {
     this.ambient.intensity = th.ambient; this.scene.fog.color.copy(th.fog).lerp(new THREE.Color(0.55, 0.58, 0.64), Math.min(1, wx.fog * 0.8 + wx.rain * 0.5)); this.base.material.color.copy(th.fog).multiplyScalar(0.55);
     const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain);
     // weather → visibility, sky mood, lightning
-    const fogK = wx.fog + dread * 0.3;
-    this.scene.fog.near += ((40 - 16 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((260 - 130 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
+    const fogK = Math.min(1, wx.fog + dread * 0.2);
+    this.scene.fog.near += ((44 - 14 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((280 - 100 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
     if (wx.id === 'thunder' && Math.random() < dt * 0.35) this.thunderT = 1;
     this.thunderT *= Math.exp(-dt * 10);
     for (const v of this.views.values()) { const u = v.floor.material.uniforms; u.uTime.value = this.time; u.uNight.value = night; u.uWet.value = wet; }
@@ -437,7 +450,7 @@ export class Renderer {
     this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread: Math.min(1, dread + wx.rain * 0.5 + wx.fog * 0.3), water: pv.water, fujiScale: pv.fuji }, this.camera);
     this.grass.update(dt, this.wind, night, vSeason); this.flowers.update(dt, this.wind, night, vSeason);
     this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt });
-    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread, wx.rain * 0.85, wx.id === 'blizzard' ? 0.5 : 0) });
+    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread * 0.8, wx.rain * 0.6, wx.id === 'blizzard' ? 0.35 : 0) });
     const active = w.runners.filter(r => !r.disabled);
     this.deer.update(dt, w.distance);
     this.litter.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y })), this.wind, w.speed);
@@ -493,13 +506,12 @@ export class Renderer {
     _M4.lookAt(cam.position, aim, camUp); _Q1.setFromRotationMatrix(_M4);
     cam.quaternion.slerp(_Q1, 1 - Math.exp(-dt * 6));
     this.shake = 0;
-    this.grade.uniforms.uVibrance.value = w.slowT > 0 ? -0.35 : 0.14; this.grade.uniforms.uLift.value.set(w.slowT > 0 ? 0.02 : 0.012, w.slowT > 0 ? 0.03 : 0.014, w.slowT > 0 ? 0.09 : 0.03);   // Raijin: cold, desaturated slow-time
     // things that ride with the camera / runners
     this.sky.group.position.set(cam.position.x, 0, cam.position.z);
     const fr = this.track.frameAt(w.distance); this.fxGroup.position.copy(fr.P); this.fxGroup.quaternion.copy(this.track.quatAt(w.distance));
 
     // ---- typhoon
-    this.storm.position.y = 34 - dread * 24 + (w.alive ? 0 : -9);
+    this.storm.position.y = 36 - dread * 17 + (w.alive ? 0 : -9);
     this.storm.material.uniforms.uTime.value = this.time;
     if (dread > 0.45 && Math.random() < dt * (0.12 + dread * 0.5)) this.flash = 1;
     this.flash = Math.max(this.flash * Math.exp(-dt * 12), this.thunderT); this.storm.material.uniforms.uFlash.value = this.flash; this.flashLight.intensity = this.flash * 2.5;

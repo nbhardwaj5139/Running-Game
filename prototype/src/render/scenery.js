@@ -5,7 +5,7 @@
 // live index), landmarks are pooled single meshes. Deterministic from ctx.rng.
 import * as THREE from 'three';
 import { PAINT, paint, merge, box, cyl, cone, sph, radial, canvasTexture, MeshPool, InstancePool, compose, lerp, placeMesh } from './common.js';
-import { seasonBlend } from '../core/chunks.js';
+import { seasonBlend, BIOME_LEN } from '../core/chunks.js';
 import { mulberry32 } from '../core/rng.js';
 
 const MAX_LIGHTS = 8, TAU = Math.PI * 2;
@@ -267,7 +267,7 @@ export function buildScenery(parent, neonFactory) {
   /** Utility poles on both verges every `spacing` m, three catenary wires per span (skips the span into a new biome). */
   function poleLine(V, px, spacing) {
     const { z0, len } = V, zs = []; for (let z = z0 + spacing / 2; z < z0 + len; z += spacing) zs.push(z);
-    const last = (V.index + 1) % 8 === 0;
+    const last = (V.index + 1) % BIOME_LEN === 0;
     for (const s of [-1, 1]) {
       const x = s * px;
       for (let k = 0; k < zs.length; k++) {
@@ -417,7 +417,7 @@ export function buildScenery(parent, neonFactory) {
     if (S.views.has(chunk.index)) release(chunk.index);
     const V = newView(chunk, ctx); S.season = ctx.season;
     [dressMountain, dressCity, dressSuburb, dressCoast][ctx.biome](V);
-    if (chunk.index % 8 === 0) entrance(V, ctx.biome);
+    if (chunk.index % BIOME_LEN === 0) entrance(V, ctx.biome);
     S.views.set(chunk.index, V); flushAll();
   }
   function release(index) {

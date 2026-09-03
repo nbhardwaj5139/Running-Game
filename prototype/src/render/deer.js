@@ -1,26 +1,28 @@
 // Nara deer: low-poly sika deer that graze in the verges, trot along the road,
 // and bow as a runner passes. Track-space kinematics; placed through the mapper.
 import * as THREE from 'three';
-import { placeMesh } from './common.js';
+import { placeMesh, paint, merge } from './common.js';
 import { CHUNK_LEN } from '../core/chunks.js';
 
 function deerRig() {
-  const g = new THREE.Group();
-  const fur = new THREE.MeshStandardMaterial({ color: 0xa9784a, roughness: 0.9 }), cream = new THREE.MeshStandardMaterial({ color: 0xf1e3c8, roughness: 0.9 }), dark = new THREE.MeshStandardMaterial({ color: 0x3a2a1c });
-  const add = (parent, geo, m, p, r = [0, 0, 0]) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(...p); mesh.rotation.set(...r); parent.add(mesh); return mesh; };
-  add(g, new THREE.CapsuleGeometry(0.22, 0.6, 4, 10), fur, [0, 0.72, 0], [Math.PI / 2, 0, 0]);
-  add(g, new THREE.CapsuleGeometry(0.15, 0.5, 4, 8), cream, [0, 0.62, 0.02], [Math.PI / 2, 0, 0]);
-  for (let i = 0; i < 12; i++) add(g, new THREE.SphereGeometry(0.035, 5, 4), cream, [(i % 2 ? 0.14 : -0.14) + (Math.sin(i * 1.7) * 0.06), 0.9, -0.3 + (i >> 1) * 0.11]);   // spots
+  const g = new THREE.Group(); const HPI = Math.PI / 2;
+  const fur = '#a9784a', cream = '#f1e3c8', dark = '#3a2a1c';
+  const P = (geo, c, p, r = [0, 0, 0]) => paint(geo, c, { p, r });
+  const mesh = (parts, parent) => { const m = new THREE.Mesh(merge(parts), DEER_MAT); parent.add(m); return m; };
+  const body = [P(new THREE.CapsuleGeometry(0.22, 0.6, 4, 10), fur, [0, 0.72, 0], [HPI, 0, 0]), P(new THREE.CapsuleGeometry(0.15, 0.5, 4, 8), cream, [0, 0.62, 0.02], [HPI, 0, 0]), P(new THREE.SphereGeometry(0.06, 6, 5), cream, [0, 0.8, -0.52])];
+  for (let i = 0; i < 12; i++) body.push(P(new THREE.SphereGeometry(0.035, 5, 4), cream, [(i % 2 ? 0.14 : -0.14) + (Math.sin(i * 1.7) * 0.06), 0.9, -0.3 + (i >> 1) * 0.11]));   // spots
+  mesh(body, g);
   const neck = new THREE.Group(); neck.position.set(0, 0.85, 0.32); g.add(neck);
-  add(neck, new THREE.CylinderGeometry(0.09, 0.12, 0.42, 8), fur, [0, 0.18, 0.08], [-0.5, 0, 0]);
+  mesh([P(new THREE.CylinderGeometry(0.09, 0.12, 0.42, 8), fur, [0, 0.18, 0.08], [-0.5, 0, 0])], neck);
   const head = new THREE.Group(); head.position.set(0, 0.4, 0.2); neck.add(head);
-  add(head, new THREE.SphereGeometry(0.13, 10, 8), fur, [0, 0, 0]); add(head, new THREE.ConeGeometry(0.07, 0.2, 8), fur, [0, -0.03, 0.17], [Math.PI / 2, 0, 0]); add(head, new THREE.SphereGeometry(0.03, 6, 6), dark, [0, -0.02, 0.27]);
-  for (const s of [-1, 1]) { add(head, new THREE.ConeGeometry(0.04, 0.14, 5), fur, [s * 0.1, 0.11, -0.02], [0, 0, -s * 0.5]); add(head, new THREE.CylinderGeometry(0.012, 0.02, 0.24, 5), dark, [s * 0.06, 0.24, -0.02], [0.2, 0, -s * 0.35]); add(head, new THREE.CylinderGeometry(0.01, 0.015, 0.12, 5), dark, [s * 0.11, 0.3, -0.03], [0.2, 0, -s * 1.1]); }
+  const hp = [P(new THREE.SphereGeometry(0.13, 10, 8), fur, [0, 0, 0]), P(new THREE.ConeGeometry(0.07, 0.2, 8), fur, [0, -0.03, 0.17], [HPI, 0, 0]), P(new THREE.SphereGeometry(0.03, 6, 6), dark, [0, -0.02, 0.27])];
+  for (const s of [-1, 1]) hp.push(P(new THREE.ConeGeometry(0.04, 0.14, 5), fur, [s * 0.1, 0.11, -0.02], [0, 0, -s * 0.5]), P(new THREE.CylinderGeometry(0.012, 0.02, 0.24, 5), dark, [s * 0.06, 0.24, -0.02], [0.2, 0, -s * 0.35]), P(new THREE.CylinderGeometry(0.01, 0.015, 0.12, 5), dark, [s * 0.11, 0.3, -0.03], [0.2, 0, -s * 1.1]));
+  mesh(hp, head);
   const legs = [];
-  for (const [x, z] of [[-0.12, 0.28], [0.12, 0.28], [-0.12, -0.26], [0.12, -0.26]]) { const p = new THREE.Group(); p.position.set(x, 0.55, z); g.add(p); add(p, new THREE.CylinderGeometry(0.04, 0.03, 0.55, 6), fur, [0, -0.27, 0]); legs.push(p); }
-  add(g, new THREE.SphereGeometry(0.06, 6, 5), cream, [0, 0.8, -0.52]);
+  for (const [x, z] of [[-0.12, 0.28], [0.12, 0.28], [-0.12, -0.26], [0.12, -0.26]]) { const p = new THREE.Group(); p.position.set(x, 0.55, z); g.add(p); mesh([P(new THREE.CylinderGeometry(0.04, 0.03, 0.55, 6), fur, [0, -0.27, 0])], p); legs.push(p); }
   return { group: g, neck, legs };
 }
+const DEER_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
 
 export function makeDeer(parent) {
   const pool = []; const live = new Map(); let t = 0;

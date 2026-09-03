@@ -20,8 +20,8 @@ export const BEAT_LEN = 6;                           // one hazard "row" per bea
 export const BEATS = CHUNK_LEN / BEAT_LEN;
 
 // Sections: the road cycles through biomes; the year turns more slowly.
-export const BIOME_LEN = 12;                         // chunks per biome section (432 m)
-export const SEASON_LEN = 22;                        // chunks per season (792 m) — a full year every 3.2 km
+export const BIOME_LEN = 16;                         // chunks per biome section (576 m)
+export const SEASON_LEN = 32;                        // chunks per season (1152 m, two provinces) — a full year every 4.6 km
 export const BIOMES = ['mountain', 'city', 'suburb', 'coast'];
 export const SEASONS = ['spring', 'summer', 'fall', 'winter'];
 export const biomeOf = (index) => Math.floor(Math.max(0, index) / BIOME_LEN) % BIOMES.length;
@@ -54,12 +54,12 @@ export const shrineTopAt = (index) => provinceOf(index).shrine && index % BIOME_
 // ---- weather: one state per biome section, drawn from the season. Each state is a challenge.
 export const WEATHER = {
   clear:    { id: 'clear',    jp: '晴れ', en: 'Clear',        laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 0,   rain: 0,   pressure: 1.0 },
-  rain:     { id: 'rain',     jp: '雨',   en: 'Rain',         laneT: 1.15, stumble: 1.0, gust: 0,   fog: 0.2, rain: 0.7, pressure: 1.0 },
-  thunder:  { id: 'thunder',  jp: '雷雨', en: 'Thunderstorm', laneT: 1.15, stumble: 1.0, gust: 9,   fog: 0.3, rain: 1.0, pressure: 1.3 },
+  rain:     { id: 'rain',     jp: '雨',   en: 'Rain',         laneT: 1.15, stumble: 1.0, gust: 0,   fog: 0.08, rain: 0.55, pressure: 1.0 },
+  thunder:  { id: 'thunder',  jp: '雷雨', en: 'Thunderstorm', laneT: 1.15, stumble: 1.0, gust: 9,   fog: 0.12, rain: 0.8, pressure: 1.3 },
   wind:     { id: 'wind',     jp: '強風', en: 'High wind',    laneT: 1.0,  stumble: 1.0, gust: 6,   fog: 0,   rain: 0,   pressure: 1.0 },
-  fog:      { id: 'fog',      jp: '霧',   en: 'Fog',          laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 0.7, rain: 0,   pressure: 1.0 },
-  snow:     { id: 'snow',     jp: '雪',   en: 'Snow',         laneT: 1.3,  stumble: 1.3, gust: 0,   fog: 0.3, rain: 0,   pressure: 1.0 },
-  blizzard: { id: 'blizzard', jp: '吹雪', en: 'Blizzard',     laneT: 1.3,  stumble: 1.3, gust: 7,   fog: 0.8, rain: 0,   pressure: 1.2 },
+  fog:      { id: 'fog',      jp: '霧',   en: 'Fog',          laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 0.4, rain: 0,   pressure: 1.0 },
+  snow:     { id: 'snow',     jp: '雪',   en: 'Snow',         laneT: 1.3,  stumble: 1.3, gust: 0,   fog: 0.12, rain: 0,   pressure: 1.0 },
+  blizzard: { id: 'blizzard', jp: '吹雪', en: 'Blizzard',     laneT: 1.3,  stumble: 1.3, gust: 7,   fog: 0.4, rain: 0,   pressure: 1.2 },
 };
 const WEATHER_BY_SEASON = [['clear', 'clear', 'rain'], ['clear', 'rain', 'thunder'], ['clear', 'wind', 'fog'], ['snow', 'snow', 'blizzard']];
 /** Weather for the section containing chunk `index` (pure in seed). The opening section is always clear. */
@@ -117,16 +117,15 @@ export function kaijuOf(index) {
   const season = seasonOf(index);
   return { ...KAIJU[season], season, side: Math.floor(index / SEASON_LEN) % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
 }
-export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack', 'thunder', 'foxfire', 'dawn', 'susanoo', 'kagura', 'guide'];
-const POWER_WEIGHTS = [0.14, 0.12, 0.1, 0.09, 0.1, 0.1, 0.07, 0.07, 0.05, 0.05, 0.06, 0.05];
+export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack', 'foxfire', 'dawn', 'susanoo', 'kagura', 'guide'];
+const POWER_WEIGHTS = [0.14, 0.12, 0.12, 0.09, 0.1, 0.12, 0.07, 0.05, 0.06, 0.07, 0.06];
 export const POWER_INFO = {
   shield:  { jp: '御守', en: 'Spirit Shield', blurb: 'smash through anything for 8 s', color: [0.5, 1.6, 2.2] },
   magnet:  { jp: '磁',   en: 'Tanuki Magnet', blurb: 'coins on your half come to you', color: [0.6, 0.8, 2.0] },
   dash:    { jp: '★',   en: 'Wind Kami Star Run', blurb: 'faster, unstoppable, rainbow', color: [2.2, 1.6, 0.6] },
   x2:      { jp: '達磨', en: 'Daruma ×2', blurb: 'double coins and score', color: [2.0, 0.5, 0.4] },
   heal:    { jp: '桜',   en: 'Sakura Heal', blurb: 'the typhoon falls back 14 m', color: [2.0, 1.0, 1.3] },
-  jetpack: { jp: '翼',   en: 'Tengu Jetpack', blurb: 'fly over every ground hazard, faster', color: [2.2, 1.3, 0.4] },
-  thunder: { jp: '雷',   en: 'Raijin Slow-time', blurb: 'the world slows to half speed for 6 s', color: [1.4, 1.2, 2.4] },
+  jetpack: { jp: '翼',   en: 'Tengu Jetpack', blurb: 'fly over every ground hazard, much faster', color: [2.2, 1.3, 0.4] },
   foxfire: { jp: '狐火', en: 'Inari Fox-fire', blurb: 'every coin on the whole road flies to you, ×3', color: [0.4, 1.8, 2.4] },
   dawn:    { jp: '天照', en: 'Amaterasu Dawn', blurb: 'the sun rises: typhoon reset, no drain for 10 s', color: [2.5, 2.0, 1.2] },
   susanoo: { jp: '須佐', en: 'Susanoo Storm-break', blurb: 'lightning clears the next 60 m, typhoon pushed back', color: [1.8, 1.9, 2.5] },
@@ -137,9 +136,9 @@ export const VARIANTS = 4;                           // visual variants per obst
 
 /** Difficulty presets chosen on the start screen. `hazard` scales row density, `power` the pickup rate. */
 export const DIFFICULTY = {
-  easy:   { id: 'easy',   jp: '易', en: 'Easy',   hazard: 0.6,  speedBase: 9,  speedMax: 17, recover: 0.85, drift: 0.2,  power: 1.4, throws: 0.7 },
-  normal: { id: 'normal', jp: '普通', en: 'Normal', hazard: 1.0,  speedBase: 11, speedMax: 22, recover: 0.6,  drift: 0.32, power: 1.0, throws: 1.0 },
-  hard:   { id: 'hard',   jp: '難', en: 'Hard',   hazard: 1.25, speedBase: 13, speedMax: 27, recover: 0.45, drift: 0.45, power: 0.7, throws: 1.4 },
+  easy:   { id: 'easy',   jp: '易', en: 'Easy',   hazard: 0.6,  speedBase: 12, speedMax: 22, recover: 0.85, drift: 0.2,  power: 1.4, throws: 0.7 },
+  normal: { id: 'normal', jp: '普通', en: 'Normal', hazard: 1.0,  speedBase: 14, speedMax: 27, recover: 0.6,  drift: 0.32, power: 1.0, throws: 1.0 },
+  hard:   { id: 'hard',   jp: '難', en: 'Hard',   hazard: 1.25, speedBase: 16, speedMax: 32, recover: 0.45, drift: 0.45, power: 0.7, throws: 1.4 },
 };
 
 export const TUNING = {
@@ -151,7 +150,7 @@ export const TUNING = {
   rollerChance: [0, 0.16],
   wallEvery: 6,            // in chunks, once diff > 0.7: a torii wall with one slide-through lane
   releaseBelow: 0.28,      // wave value under which a chunk is a "release" chunk (breathing room)
-  powerChance: 0.3,        // per track per chunk
+  powerChance: 0.4,        // per track per chunk
 };
 
 function lerp(a, b, t) { return a + (b - a) * t; }

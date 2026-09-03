@@ -32,8 +32,10 @@ export function makeLitter(parent) {
     release(index) { const l = byChunk.get(index); if (!l) return; for (const it of l) { it.pool.give(it.i); const k = items.indexOf(it); if (k >= 0) items.splice(k, 1); } byChunk.delete(index); for (const p of Object.values(pools)) p.flush(); },
     update(dt, runners, wind, speed) {
       let dirty = false;
+      const s0 = runners.length ? runners[0].s : 0;
       for (const it of items) {
         if (!it.air) {
+          if (Math.abs(it.s - s0) > 6) continue;                 // far items cannot be touched this frame
           for (const r of runners) {
             if (r.y > 0.4 || Math.abs(r.s - it.s) > 1.1 || Math.abs(r.x - it.x) > 1.0) continue;
             const side = Math.sign(it.x - r.x) || (Math.random() < 0.5 ? -1 : 1);

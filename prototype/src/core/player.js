@@ -16,8 +16,8 @@ export const P = {
   COYOTE_T: 0.08,
   STUMBLE_T: 1.0,
   STUMBLE_MULT: 0.72,
-  SPEED_MAX: 22,
-  SPEED_BASE: 11,
+  SPEED_MAX: 27,
+  SPEED_BASE: 14,
   DASH_T: 5,              // Wind Kami star run: invulnerable, faster, smashes everything in its path
   MAGNET_T: 10,
   SHIELD_T: 8,            // Kitsune shield: smash through obstacles for a while

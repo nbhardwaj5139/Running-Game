@@ -117,8 +117,22 @@ export function kaijuOf(index) {
   const season = seasonOf(index);
   return { ...KAIJU[season], season, side: Math.floor(index / SEASON_LEN) % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
 }
-export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack'];
-const POWER_WEIGHTS = [0.22, 0.2, 0.16, 0.13, 0.13, 0.16];
+export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack', 'thunder', 'foxfire', 'dawn', 'susanoo', 'kagura', 'guide'];
+const POWER_WEIGHTS = [0.14, 0.12, 0.1, 0.09, 0.1, 0.1, 0.07, 0.07, 0.05, 0.05, 0.06, 0.05];
+export const POWER_INFO = {
+  shield:  { jp: '御守', en: 'Spirit Shield', blurb: 'smash through anything for 8 s', color: [0.5, 1.6, 2.2] },
+  magnet:  { jp: '磁',   en: 'Tanuki Magnet', blurb: 'coins on your half come to you', color: [0.6, 0.8, 2.0] },
+  dash:    { jp: '★',   en: 'Wind Kami Star Run', blurb: 'faster, unstoppable, rainbow', color: [2.2, 1.6, 0.6] },
+  x2:      { jp: '達磨', en: 'Daruma ×2', blurb: 'double coins and score', color: [2.0, 0.5, 0.4] },
+  heal:    { jp: '桜',   en: 'Sakura Heal', blurb: 'the typhoon falls back 14 m', color: [2.0, 1.0, 1.3] },
+  jetpack: { jp: '翼',   en: 'Tengu Jetpack', blurb: 'fly over every ground hazard, faster', color: [2.2, 1.3, 0.4] },
+  thunder: { jp: '雷',   en: 'Raijin Slow-time', blurb: 'the world slows to half speed for 6 s', color: [1.4, 1.2, 2.4] },
+  foxfire: { jp: '狐火', en: 'Inari Fox-fire', blurb: 'every coin on the whole road flies to you, ×3', color: [0.4, 1.8, 2.4] },
+  dawn:    { jp: '天照', en: 'Amaterasu Dawn', blurb: 'the sun rises: typhoon reset, no drain for 10 s', color: [2.5, 2.0, 1.2] },
+  susanoo: { jp: '須佐', en: 'Susanoo Storm-break', blurb: 'lightning clears the next 60 m, typhoon pushed back', color: [1.8, 1.9, 2.5] },
+  kagura:  { jp: '鈴',   en: 'Kagura Bell', blurb: 'every hazard in the next 40 m turns into coins', color: [2.4, 1.8, 0.5] },
+  guide:   { jp: '烏',   en: 'Yatagarasu Guide', blurb: 'the three-legged crow runs for you for 10 s', color: [0.9, 0.5, 2.2] },
+};
 export const VARIANTS = 4;                           // visual variants per obstacle type (renderer picks props)
 
 /** Difficulty presets chosen on the start screen. `hazard` scales row density, `power` the pickup rate. */

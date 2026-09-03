@@ -26,7 +26,7 @@
   .chips { display: flex; gap: 6px; }
   .chip { padding: 3px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); display: none; }
   .chip.on { display: inline-block; }
-  .chip.shield { border-color: var(--cyan); color: var(--cyan); } .chip.jetpack { border-color: #ffb347; color: #ffb347; } .chip.magnet { border-color: #8fb8ff; color: #8fb8ff; } .chip.dash { border-color: #b8ff8f; color: #b8ff8f; }
+  .chip.shield { border-color: var(--cyan); color: var(--cyan); } .chip.jetpack { border-color: #ffb347; color: #ffb347; } .chip.foxfire { border-color: #6fe8ff; color: #6fe8ff; } .chip.guide { border-color: #c98cff; color: #c98cff; } .chip.magnet { border-color: #8fb8ff; color: #8fb8ff; } .chip.dash { border-color: #b8ff8f; color: #b8ff8f; }
   #x2 { position: absolute; top: 14px; left: 50%; transform: translateX(-50%) translateY(56px); color: #ffd23f; font-weight: 900; font-size: 18px; letter-spacing: .1em; text-shadow: 0 0 14px rgba(255,210,63,.8); display: none; }
   #x2.on { display: block; }
   #toast { position: absolute; top: 30%; left: 0; right: 0; text-align: center; pointer-events: none; opacity: 0; transition: opacity .5s; }
@@ -35,6 +35,12 @@
   #toast.on { opacity: 1; }
   #power { position: absolute; top: 44%; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 700; letter-spacing: .2em; color: #fff; text-shadow: 0 0 16px rgba(126,240,255,.9); opacity: 0; transition: opacity .3s; pointer-events: none; }
   #power.on { opacity: 1; }
+  #pickup { position: absolute; top: 20%; left: 50%; transform: translate(-50%, 0) scale(.7); pointer-events: none; opacity: 0; transition: opacity .25s, transform .25s; text-align: center; --pc: #fff; }
+  #pickup.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  #pickup .glyph { display: block; font-family: "Shippori Mincho", serif; font-size: 72px; line-height: 1; color: var(--pc); text-shadow: 0 0 34px var(--pc), 0 2px 6px rgba(0,0,0,.7); }
+  #pickup .name { display: block; margin-top: 6px; font-size: 24px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase; color: #fff; text-shadow: 0 0 18px var(--pc), 0 1px 4px rgba(0,0,0,.8); }
+  #pickup .what { display: block; margin-top: 4px; font-size: 14px; letter-spacing: .12em; color: #fff; opacity: .92; text-shadow: 0 1px 4px rgba(0,0,0,.9); }
+  #pickup .who { display: block; margin-top: 10px; font-size: 12px; font-weight: 700; letter-spacing: .35em; color: var(--pc); text-shadow: 0 0 10px var(--pc), 0 1px 3px rgba(0,0,0,.9); }
   #flash { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; background: radial-gradient(circle at var(--fx, 50%) 60%, rgba(255,255,255,.35), transparent 40%); transition: opacity .12s; }
   #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 3; box-shadow: inset 0 0 120px 20px rgba(5,0,2,.35); }
   #msg { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 5; }
@@ -96,8 +102,9 @@
   <div id="x2">×2 DARUMA</div>
   <div id="toast"><b id="toastJp"></b><span id="toastEn"></span></div>
   <div id="power"></div>
-  <div class="runner l" id="runner0"><div class="name">狸 TANUKI <span id="who0">spirit companion</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">🚀 jetpack</i></div></div>
-  <div class="runner r" id="runner1"><div class="name">狐 KITSUNE <span id="who1">you</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">🚀 jetpack</i></div></div>
+  <div id="pickup"><b class="glyph"></b><span class="name"></span><span class="what"></span><span class="who"></span></div>
+  <div class="runner l" id="runner0"><div class="name">狸 TANUKI <span id="who0">spirit companion</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">翼 jetpack</i><i class="chip foxfire">狐火 fox-fire</i><i class="chip guide">烏 guided</i></div></div>
+  <div class="runner r" id="runner1"><div class="name">狐 KITSUNE <span id="who1">you</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">翼 jetpack</i><i class="chip foxfire">狐火 fox-fire</i><i class="chip guide">烏 guided</i></div></div>
   <div id="hit"></div>
   <div class="bar" id="storm"><label>台風 TYPHOON</label><i></i></div>
   <div id="hint"></div>

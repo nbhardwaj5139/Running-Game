@@ -1,7 +1,7 @@
 // Bootstrap: sim + renderer + input + HUD + mode select (1P with a spirit companion / 2P shared keyboard).
 import { World, W } from './core/world.js';
 import { normalizeSeed } from './core/rng.js';
-import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY } from './core/chunks.js';
+import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY, POWER_INFO } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 import { CHARACTERS, characterById, buildCharacter } from './render/characters.js';
@@ -14,11 +14,10 @@ const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-m
 
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
-  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
-const POWER_NAMES = { shield: '御守 SPIRIT SHIELD — smash through anything', magnet: '狸の磁力 TANUKI MAGNET', dash: '★ WIND KAMI STAR RUN — faster, unstoppable', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL', jetpack: '🚀 TENGU JETPACK — fly over everything' };
+  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
 
 let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
-let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
+let acc = 0, last = performance.now(), toastT = 0, powerT = 0, pickupT = 0;
 try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
 if (DIFFICULTY[q.get('diff')]) difficulty = q.get('diff');
 try { god = localStorage.getItem('kitsune.god') === '1'; } catch {}
@@ -86,7 +85,14 @@ function newWorld() {
         hud.hit.innerHTML = `−${e.cost ?? 0} m · hit ${NAME[e.cell.type] || e.cell.type}${e.cell.thrown ? ' (thrown)' : ''} — <b>${VERB[e.cell.type] || ''}</b>`; hud.hit.classList.add('on'); hitT = 2.2;
       }
       if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
-      if (e.type === 'power') { hud.power.textContent = POWER_NAMES[e.kind] || e.kind; hud.power.classList.add('on'); powerT = 1.4; }
+      if (e.type === 'power') {
+        const info = POWER_INFO[e.kind] || { jp: '?', en: e.kind, blurb: '', color: [1, 1, 1] };
+        const c = info.color.map((v) => Math.round(Math.min(1, v / 2.6) * 255));
+        hud.pickup.style.setProperty('--pc', `rgb(${c[0] + 60},${c[1] + 60},${c[2] + 60})`);
+        hud.pickup.querySelector('.glyph').textContent = info.jp; hud.pickup.querySelector('.name').textContent = info.en; hud.pickup.querySelector('.what').textContent = info.blurb;
+        hud.pickup.querySelector('.who').textContent = mode === 1 ? 'YOU' : (e.runner === 1 ? 'PLAYER 1 · RIGHT ROAD' : 'PLAYER 2 · LEFT ROAD');
+        hud.pickup.classList.remove('on'); void hud.pickup.offsetWidth; hud.pickup.classList.add('on'); pickupT = 2.6;
+      }
       if (e.type === 'section') showSection(e.season, e.biome, true, e.province);
       if (e.type === 'weather' && running) { hud.power.textContent = `${e.weather.jp} ${e.weather.en.toUpperCase()}`; hud.power.classList.add('on'); powerT = 2; }
       if (e.type === 'setpiece' && e.kind) { hud.toastJp.textContent = e.spec.jp; hud.toastEn.textContent = e.spec.en; hud.toast.classList.add('on'); toastT = 2.6; hud.power.textContent = '⚠ ' + e.spec.en.toUpperCase(); hud.power.classList.add('on'); powerT = 2.5; }
@@ -188,16 +194,20 @@ function frame(now) {
   hud.storm.querySelector('i').style.width = Math.max(0, 100 - (world.storm / W.STORM_MAX) * 100) + '%';
   const dread = 1 - Math.max(0, world.storm) / W.STORM_MAX;
   hud.vig.style.boxShadow = `inset 0 0 ${40 + dread * 220}px ${dread * 60}px rgba(5,0,2,${0.15 + dread * 0.7})`;
-  hud.x2.classList.toggle('on', world.x2T > 0);
+  hud.x2.classList.toggle('on', world.x2T > 0 || world.slowT > 0 || world.dawnT > 0);
+  hud.x2.textContent = world.slowT > 0 ? '雷 SLOW-TIME' : world.dawnT > 0 ? '天照 DAWN' : '×2 DARUMA';
   for (const r of world.runners) {
     const el = hud.runners[r.track];
     el.querySelector('.shield').classList.toggle('on', r.shield);
     el.querySelector('.magnet').classList.toggle('on', r.magnetT > 0);
     el.querySelector('.dash').classList.toggle('on', r.dashT > 0);
     el.querySelector('.jetpack').classList.toggle('on', r.jetpackT > 0);
+    el.querySelector('.foxfire').classList.toggle('on', r.foxfireT > 0);
+    el.querySelector('.guide').classList.toggle('on', r.guideT > 0);
   }
   if (toastT > 0 && (toastT -= dt) <= 0) hud.toast.classList.remove('on');
   if (powerT > 0 && (powerT -= dt) <= 0) hud.power.classList.remove('on');
+  if (pickupT > 0 && (pickupT -= dt) <= 0) hud.pickup.classList.remove('on');
   if (hitT > 0 && (hitT -= dt) <= 0) hud.hit.classList.remove('on');
 }
 

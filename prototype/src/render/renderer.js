@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, LANES, TRACK_W, ROAD_HALF, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt, surfaceOf } from '../core/chunks.js';
+import { LANE_W, LANES, TRACK_W, ROAD_HALF, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, POWER_INFO, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt, surfaceOf } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
@@ -206,7 +206,7 @@ export class Renderer {
       const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(120,200,255,0.9)', 'rgba(60,120,255,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
       aura.scale.set(2.6, 2.6, 1); aura.position.y = 0.5; rig.group.add(aura);
       const jet = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(255,235,160,1)', 'rgba(255,90,20,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-      jet.scale.set(1.2, 2.2, 1); jet.position.set(0, -0.6, -0.35); rig.group.add(jet);
+      jet.scale.set(1.0, 1.6, 1); jet.position.set(0, 0.35, -0.85); rig.group.add(jet);   // fire out of the back
       const tc = new THREE.Color(...ch.trail);
       const light = new THREE.PointLight(tc.clone().multiplyScalar(0.5), 4, 6, 1.6); light.position.set(0, 0.9, -0.3); rig.group.add(light);
       const trail = makeTrail(this.root, tc);
@@ -235,7 +235,16 @@ export class Renderer {
     this.coinPool = new InstancePool(this.root, coinGeometry(), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.35, 1.0, 0.32) }), 600);
     this.coins = [];
     this.powers = buildPowers();
+    // pickups without a modelled icon get a glowing kanji disc
+    for (const [kind, info] of Object.entries(POWER_INFO)) {
+      if (this.powers[kind]) continue;
+      const tex = canvasTexture(128, 128, (g, w, h) => { g.translate(w, 0); g.scale(-1, 1); const gr = g.createRadialGradient(64, 64, 10, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#1a1020'; g.font = 'bold 60px "Noto Sans JP", "IPAGothic", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(info.jp.length > 2 ? info.jp.slice(0, 2) : info.jp, 64, 66); });
+      const col = new THREE.Color(...info.color);
+      this.powers[kind] = { geo: new THREE.PlaneGeometry(1.1, 1.1), mat: new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, color: col.clone().multiplyScalar(0.8), depthWrite: false }), ring: col, billboard: true };
+    }
     this.ringGeo = new THREE.RingGeometry(0.55, 0.75, 32);
+    this.haloGeo = new THREE.PlaneGeometry(2.2, 2.2); this.haloTex = radial('rgba(255,255,255,0.75)', 'rgba(255,255,255,0)', 64);
     this.scenery = buildScenery(this.root, (text, color, vertical) => {
       const t = neonTexture(text, color, vertical);
       const m = new THREE.Mesh(new THREE.PlaneGeometry(t.image.width / 40, t.image.height / 40), new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide, color: new THREE.Color(1.6, 1.6, 1.6) }));
@@ -310,7 +319,9 @@ export class Renderer {
         const m = this.pool(`power:${cell.kind}`, pw.geo, pw.mat).take(); m.position.set(x, 0.5, cell.z); placeMesh(m); m.userData.cell = cell;
         const ring = this.pool(`ring:${cell.kind}`, this.ringGeo, new THREE.MeshBasicMaterial({ color: pw.ring, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })).take();
         ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.05, cell.z); placeMesh(ring);
-        v.meshes.push(m, ring); v.powers.push({ m, ring, cell, z: cell.z, x }); light(x, cell.z, 0.8, 0.5, [pw.ring.r, pw.ring.g, pw.ring.b]);
+        const halo = this.pool(`halo:${cell.kind}`, this.haloGeo, new THREE.MeshBasicMaterial({ map: this.haloTex, color: pw.ring.clone().multiplyScalar(0.9), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false })).take();
+        halo.position.set(x, 0.85, cell.z); placeMesh(halo);
+        v.meshes.push(m, ring, halo); v.powers.push({ m, ring, halo, cell, z: cell.z, x }); light(x, cell.z, 0.8, 0.5, [pw.ring.r, pw.ring.g, pw.ring.b]);
         continue;
       }
       if (cell.type === 'wave') {
@@ -379,9 +390,15 @@ export class Renderer {
       case 'recycle': this._detachChunk(e.old); this._attachChunk(e.fresh); break;
       case 'coin': { const coin = this.coins.find(k => k.cell === e.cell); if (coin) { this.coinPool.give(coin.i); coin.i = -1; this.coinPool.flush(); } break; }
       case 'power': {
-        for (const v of this.views.values()) for (const pw of v.powers) if (pw.cell === e.cell) { pw.m.visible = false; pw.ring.visible = false; this.shock.burst(pw.x, pw.z, this.powers[e.kind].ring); }
+        for (const v of this.views.values()) for (const pw of v.powers) if (pw.cell === e.cell) { pw.m.visible = false; pw.ring.visible = false; pw.halo.visible = false; this.shock.burst(pw.x, pw.z, this.powers[e.kind].ring); }
         break;
       }
+      case 'strike': case 'transmute': {
+        for (const v of this.views.values()) for (const m of v.meshes) if (m.userData.cell === e.cell) m.visible = false;
+        const x = cellX(e.cell) + (e.cell.type === 'wide' || e.cell.was === 'wide' ? LANE_W / 2 : 0);
+        if (e.type === 'strike') { this.shock.burst(x, e.cell.z, new THREE.Color(1.8, 1.9, 2.6)); this.flash = 1; }
+        else { const i = this.coinPool.take(compose(x, 0.75, e.cell.z, 1, 1, 1, 0)); const coin = { i, x, y: 0.75, z: e.cell.z, cell: e.cell }; for (const v of this.views.values()) if (v.coins.some(c => Math.abs(c.z - e.cell.z) < CHUNK_LEN)) { v.coins.push(coin); break; } this.coins.push(coin); this.coinPool.flush(); this.shock.burst(x, e.cell.z, new THREE.Color(2.4, 1.8, 0.5)); }
+        break; }
       case 'shield': case 'smash': {
         this.shock.burst(roadX(this.world.runners[e.runner].xLane), this.world.distance, e.type === 'shield' ? new THREE.Color(1.5, 2.2, 2.6) : new THREE.Color(2.4, 1.6, 0.8));
         if (e.cell) for (const v of this.views.values()) for (const m of v.meshes) if (m.userData.cell === e.cell) m.visible = false;   // punched clean through it
@@ -398,7 +415,7 @@ export class Renderer {
     const w = this.world; this.time += dt;
     const idx = Math.floor(w.distance / CHUNK_LEN); const biome = biomeOf(idx), season = seasonOf(idx);
     const seasonT = (idx % SEASON_LEN) / SEASON_LEN; const pv = provinceOf(idx); const vSeason = pv.snow ? 3 : season;
-    const night = nightAt(w.distance);
+    const night = nightAt(w.distance) * (w.dawnT > 0 ? Math.max(0, 1 - w.dawnT / 2.5) : 1);   // Amaterasu: the sun comes up
     const dread = 1 - Math.max(0, w.storm) / W.STORM_MAX;
     const wx = w.weather || { fog: 0, rain: 0, gust: 0, id: 'clear' };
     this.track.ensure(idx + 8);
@@ -444,7 +461,8 @@ export class Renderer {
       const dash = p.dashT > 0, fly = p.jetpackT > 0;
       g.scale.set(dash ? 1.1 : 1, slide ? 0.55 : dash ? 1.1 : 1, slide ? 1.25 : dash ? 1.2 : 1);
       g.rotation.set(slide ? 0.25 : fly ? -0.32 : air ? -0.25 : 0, -laneVel * 0.06, -R.lean); placeMesh(g);
-      R.jet.material.opacity += ((fly ? 0.9 : 0) - R.jet.material.opacity) * Math.min(1, dt * 8); R.jet.scale.set(1.0 + 0.3 * Math.sin(this.time * 40), 2.0 + 0.5 * Math.sin(this.time * 33), 1);
+      R.jet.material.opacity += ((fly ? 1 : 0) - R.jet.material.opacity) * Math.min(1, dt * 8); R.jet.scale.set(0.9 + 0.3 * Math.sin(this.time * 40), 1.5 + 0.6 * Math.sin(this.time * 33), 1);
+      if (fly) { for (let k = 0; k < 3; k++) R.trail.emit(px + (Math.random() - 0.5) * 0.3, p.y - 0.15 + Math.random() * 0.3, w.distance - 0.9 - k * 0.3, dt, true, _COL.setRGB(2.4, 0.9 + Math.random() * 0.6, 0.15)); }
       if (fly) R.rig.legs.forEach(l => { l.rotation.x = 0.9; });
       g.visible = !(p.iT > 0 && Math.floor(this.time * 18) % 2 === 0);
       R.hurt = Math.max(0, R.hurt - dt);
@@ -475,6 +493,7 @@ export class Renderer {
     _M4.lookAt(cam.position, aim, camUp); _Q1.setFromRotationMatrix(_M4);
     cam.quaternion.slerp(_Q1, 1 - Math.exp(-dt * 6));
     this.shake = 0;
+    this.grade.uniforms.uVibrance.value = w.slowT > 0 ? -0.35 : 0.14; this.grade.uniforms.uLift.value.set(w.slowT > 0 ? 0.02 : 0.012, w.slowT > 0 ? 0.03 : 0.014, w.slowT > 0 ? 0.09 : 0.03);   // Raijin: cold, desaturated slow-time
     // things that ride with the camera / runners
     this.sky.group.position.set(cam.position.x, 0, cam.position.z);
     const fr = this.track.frameAt(w.distance); this.fxGroup.position.copy(fr.P); this.fxGroup.quaternion.copy(this.track.quatAt(w.distance));
@@ -490,7 +509,7 @@ export class Renderer {
     for (const c of this.coins) if (c.i >= 0) this.coinPool.set(c.i, compose(c.x, c.y + 0.08 * Math.sin(this.time * 4 + c.z), c.z, 1, 1, 1, spin + c.z));
     this.coinPool.flush();
     for (const v of this.views.values()) {
-      for (const pw of v.powers) { pw.m.position.set(pw.x, 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z), pw.z); pw.m.rotation.set(0, this.time * 1.6, 0); placeMesh(pw.m); const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); }
+      for (const pw of v.powers) { pw.m.position.set(pw.x, 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z), pw.z); pw.m.rotation.set(0, this.time * 1.6, 0); pw.m.scale.setScalar(1.45); placeMesh(pw.m); if (this.powers[pw.cell.kind]?.billboard) pw.m.quaternion.copy(this.camera.quaternion); const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); pw.halo.quaternion.copy(this.camera.quaternion); pw.halo.scale.setScalar(1.1 + 0.15 * Math.sin(this.time * 4 + pw.z)); }
       for (const r of v.rollers) { r.m.position.set(roadX(r.cell.track * LANES + rollerLaneAt(r.cell, w.tick)), 0, r.cell.z); r.m.rotation.set(0, r.cell.dir * this.time * 3, 0); placeMesh(r.m); }
     }
     // ---- kaiju: rises beside the road for the last chunks of a season, stomps, and throws

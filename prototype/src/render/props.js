@@ -523,9 +523,50 @@ export function buildPowers() {
   const bloom = (x, y, z, c = '#ffb7c5') => { const out = [P(sph(0.045, 6), '#f2c230', [x, y, z])]; for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; out.push(P(sph(0.055, 6), c, [x + Math.cos(a) * 0.07, y + Math.sin(a) * 0.07, z], [0, 0, 0], [1, 1, 0.5])); } return out; };
   const heal = merge([...branch, ...bloom(-0.22, 0.78, 0.05), ...bloom(0.1, 0.5, -0.05, '#ffc9d6'), ...bloom(0.28, 0.82, 0), ...bloom(0.42, 0.58, -0.06, '#ff9fb4'), ...bloom(-0.05, 0.3, 0.06),
     P(sph(0.05, 6), '#ffb7c5', [-0.34, 0.22, -0.1], [0, 0, 0], [1, 1, 0.4]), P(sph(0.04, 6), '#ffd6df', [0.25, 0.28, 0.12], [0, 0, 0], [1, 1, 0.4]), P(box(0.12, 0.04, 0.01), '#7fae4a', [0.05, 0.42, 0.02], [0, 0, 0.6])]);
+  // jetpack: tengu wings around a twin-rocket pack with flame cones
+  const wing = (dir) => [P(box(0.5, 0.1, 0.06), '#2b1d1a', [dir * 0.42, 0.62, 0], [0, 0, dir * 0.35]), P(box(0.36, 0.09, 0.06), '#3d2a24', [dir * 0.6, 0.48, 0.01], [0, 0, dir * 0.2]),
+    P(box(0.28, 0.08, 0.06), '#2b1d1a', [dir * 0.66, 0.34, 0.02], [0, 0, dir * 0.05]), P(box(0.2, 0.06, 0.05), '#c9302c', [dir * 0.3, 0.7, 0.03], [0, 0, dir * 0.5])];
+  const jetpack = merge([P(cyl(0.11, 0.11, 0.5, 8), '#b8b8c0', [-0.13, 0.42, 0]), P(cyl(0.11, 0.11, 0.5, 8), '#b8b8c0', [0.13, 0.42, 0]), P(sph(0.11, 8), '#d8342c', [-0.13, 0.67, 0]), P(sph(0.11, 8), '#d8342c', [0.13, 0.67, 0]),
+    P(box(0.34, 0.2, 0.08), '#8a3a20', [0, 0.4, 0.08]), P(cone(0.09, 0.26, 7), [2.6, 1.2, 0.2], [-0.13, 0.05, 0], [Math.PI, 0, 0]), P(cone(0.09, 0.26, 7), [2.6, 1.2, 0.2], [0.13, 0.05, 0], [Math.PI, 0, 0]),
+    P(cone(0.05, 0.16, 6), [3.0, 2.4, 0.8], [-0.13, 0.1, 0], [Math.PI, 0, 0]), P(cone(0.05, 0.16, 6), [3.0, 2.4, 0.8], [0.13, 0.1, 0], [Math.PI, 0, 0]), ...wing(-1), ...wing(1)]);
+  // thunder: Raijin's drum ring — a zigzag lightning bolt inside a ring of small taiko drums
+  const bolt = [P(box(0.26, 0.09, 0.08), [2.4, 2.2, 3.2], [-0.05, 0.72, 0], [0, 0, -0.6]), P(box(0.3, 0.09, 0.08), [2.4, 2.2, 3.2], [0.06, 0.52, 0], [0, 0, 0.7]),
+    P(box(0.3, 0.09, 0.08), [2.4, 2.2, 3.2], [-0.05, 0.32, 0], [0, 0, -0.6]), P(cone(0.08, 0.2, 4), [2.8, 2.6, 3.4], [0.06, 0.1, 0], [Math.PI, 0, 0])];
+  const drums = []; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; drums.push(P(cyl(0.07, 0.07, 0.06, 8), '#d8342c', [Math.cos(a) * 0.46, 0.45 + Math.sin(a) * 0.46, 0], [HPI, 0, 0]), P(cyl(0.04, 0.04, 0.07, 6), '#f4efe4', [Math.cos(a) * 0.46, 0.45 + Math.sin(a) * 0.46, 0], [HPI, 0, 0])); }
+  const thunder = merge([P(tor(0.46, 0.025, 4, 18), '#6a3a9a', [0, 0.45, 0]), ...drums, ...bolt]);
+  // foxfire: a white fox mask wreathed in blue-green flames
+  const foxfire = merge([P(cone(0.22, 0.34, 8), '#f7f2ea', [0, 0.36, 0], [-HPI, 0, 0]), P(sph(0.22, 10), '#f7f2ea', [0, 0.5, -0.05], [0, 0, 0], [1, 0.9, 0.8]),
+    P(cone(0.08, 0.2, 5), '#f7f2ea', [-0.15, 0.7, -0.05], [0, 0, 0.25]), P(cone(0.08, 0.2, 5), '#f7f2ea', [0.15, 0.7, -0.05], [0, 0, -0.25]),
+    P(box(0.07, 0.03, 0.02), '#c9302c', [-0.08, 0.52, 0.16], [0, 0, 0.5]), P(box(0.07, 0.03, 0.02), '#c9302c', [0.08, 0.52, 0.16], [0, 0, -0.5]), P(sph(0.03, 5), '#1e1e1e', [0, 0.36, 0.2]),
+    P(cone(0.09, 0.3, 6), [0.4, 2.2, 2.6], [-0.3, 0.42, -0.05], [0, 0, 0.5]), P(cone(0.09, 0.3, 6), [0.4, 2.2, 2.6], [0.3, 0.42, -0.05], [0, 0, -0.5]),
+    P(cone(0.1, 0.34, 6), [0.6, 2.4, 2.8], [-0.24, 0.72, -0.1], [0, 0, 0.3]), P(cone(0.1, 0.34, 6), [0.6, 2.4, 2.8], [0.24, 0.72, -0.1], [0, 0, -0.3]), P(cone(0.08, 0.28, 6), [0.8, 2.6, 3.0], [0, 0.82, -0.12])]);
+  // dawn: a rising sun disc with rays over a small horizon bar
+  const rays = []; for (let i = 0; i < 9; i++) { const a = Math.PI * (0.1 + 0.8 * i / 8); rays.push(P(box(0.3, 0.035, 0.03), [2.6, 2.0, 0.9], [Math.cos(a) * 0.42, 0.28 + Math.sin(a) * 0.42, 0], [0, 0, a])); }
+  const dawn = merge([P(cyl(0.26, 0.26, 0.06, 20), [2.8, 1.6, 0.5], [0, 0.32, 0], [HPI, 0, 0]), P(cyl(0.16, 0.16, 0.07, 16), [3.0, 2.4, 1.2], [0, 0.32, 0], [HPI, 0, 0]), ...rays,
+    P(box(0.9, 0.05, 0.06), '#2b1d1a', [0, 0.08, 0]), P(box(0.7, 0.035, 0.06), '#5a4030', [0, 0.02, 0])]);
+  // susanoo: a katana held point-up, lightning sparking off the blade
+  const susanoo = merge([P(box(0.07, 0.62, 0.02), '#e8ecf4', [0, 0.6, 0]), P(cone(0.035, 0.1, 4), '#e8ecf4', [0, 0.96, 0]), P(box(0.05, 0.6, 0.008), '#8ea0c0', [0.012, 0.6, 0.012]),
+    P(cyl(0.09, 0.09, 0.03, 8), '#2f2f2f', [0, 0.28, 0]), P(box(0.05, 0.24, 0.05), '#1e1e2a', [0, 0.14, 0]), P(box(0.055, 0.03, 0.055), '#f2c230', [0, 0.02, 0]), P(box(0.055, 0.03, 0.055), '#f2c230', [0, 0.2, 0]),
+    P(box(0.18, 0.04, 0.03), [2.2, 2.4, 3.2], [-0.2, 0.78, 0], [0, 0, -0.7]), P(box(0.16, 0.04, 0.03), [2.2, 2.4, 3.2], [-0.32, 0.64, 0], [0, 0, 0.7]), P(box(0.18, 0.04, 0.03), [2.2, 2.4, 3.2], [0.2, 0.5, 0], [0, 0, 0.7]), P(box(0.14, 0.04, 0.03), [2.2, 2.4, 3.2], [0.3, 0.38, 0], [0, 0, -0.6])]);
+  // kagura: a suzu bell cluster on a red-corded handle
+  const bells = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3 - i; j++) { const y = 0.36 + i * 0.2, x = (j - (2 - i) / 2) * 0.22; bells.push(P(sph(0.09, 8), '#f2c230', [x, y, 0]), P(box(0.06, 0.03, 0.05), '#8a5a10', [x, y - 0.06, 0.05]), P(box(0.12, 0.02, 0.02), '#c9302c', [x, y + 0.09, 0])); }
+  const kagura = merge([P(cyl(0.035, 0.04, 0.32, 7), '#5a4030', [0, 0.12, 0]), P(cyl(0.05, 0.05, 0.05, 8), '#f2c230', [0, 0.3, 0]), ...bells, P(box(0.04, 0.5, 0.02), '#c9302c', [-0.42, 0.35, 0], [0, 0, 0.2]), P(box(0.04, 0.5, 0.02), '#c9302c', [0.42, 0.35, 0], [0, 0, -0.2])]);
+  // guide: yatagarasu, the three-legged crow, wings spread
+  const guide = merge([P(sph(0.18, 10), '#151320', [0, 0.5, 0], [0, 0, 0], [1, 0.8, 1.3]), P(sph(0.11, 8), '#151320', [0, 0.66, 0.16]), P(cone(0.035, 0.12, 5), '#f2c230', [0, 0.66, 0.3], [HPI, 0, 0]),
+    P(sph(0.025, 5), [3, 0.6, 0.2], [-0.05, 0.69, 0.24]), P(sph(0.025, 5), [3, 0.6, 0.2], [0.05, 0.69, 0.24]),
+    P(box(0.5, 0.05, 0.22), '#1e1c2c', [-0.36, 0.58, -0.02], [0, 0, 0.4]), P(box(0.5, 0.05, 0.22), '#1e1c2c', [0.36, 0.58, -0.02], [0, 0, -0.4]), P(box(0.24, 0.04, 0.18), '#1e1c2c', [0, 0.46, -0.26], [0.3, 0, 0]),
+    P(cyl(0.015, 0.015, 0.2, 5), '#f2c230', [-0.08, 0.3, 0.02]), P(cyl(0.015, 0.015, 0.2, 5), '#f2c230', [0, 0.3, 0.02]), P(cyl(0.015, 0.015, 0.2, 5), '#f2c230', [0.08, 0.3, 0.02]),
+    P(box(0.08, 0.015, 0.015), '#f2c230', [-0.08, 0.2, 0.04]), P(box(0.08, 0.015, 0.015), '#f2c230', [0, 0.2, 0.04]), P(box(0.08, 0.015, 0.015), '#f2c230', [0.08, 0.2, 0.04])]);
   return {
+    jetpack: { geo: jetpack, mat: PAINT, ring: new THREE.Color('#ff8a3c') },
+    thunder: { geo: thunder, mat: PAINT, ring: new THREE.Color('#b48cff') },
+    foxfire: { geo: foxfire, mat: PAINT, ring: new THREE.Color('#3fe0ff') },
+    dawn: { geo: dawn, mat: PAINT, ring: new THREE.Color('#ffd23f') },
+    susanoo: { geo: susanoo, mat: PAINT, ring: new THREE.Color('#dfe8ff') },
+    kagura: { geo: kagura, mat: PAINT, ring: new THREE.Color('#ffc94a') },
+    guide: { geo: guide, mat: PAINT, ring: new THREE.Color('#c58cff') },
     shield: { geo: shield, mat: PAINT, ring: new THREE.Color('#ffb347') },
-    magnet: { geo: magnet, mat: GLOW, ring: new THREE.Color('#3fe0ff') },
+    magnet: { geo: magnet, mat: GLOW, ring: new THREE.Color('#5a8cff') },
     dash: { geo: dash, mat: PAINT, ring: new THREE.Color('#eaf6f8') },
     x2: { geo: x2, mat: PAINT, ring: new THREE.Color('#ff5a3c') },
     heal: { geo: heal, mat: PAINT, ring: new THREE.Color('#ff9fb4') },

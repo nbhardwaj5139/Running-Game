@@ -46,7 +46,7 @@ export class Player {
     this.action = 'run'; this.slideT = 0;
     this.stumbleT = 0;
     this.z = 0;
-    this.shield = false; this.shieldT = 0; this.magnetT = 0; this.dashT = 0; this.jetpackT = 0; this.iT = 0;
+    this.shield = false; this.shieldT = 0; this.magnetT = 0; this.dashT = 0; this.jetpackT = 0; this.iT = 0; this.foxfireT = 0; this.guideT = 0;
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
     this.laneTime = P.LANE_T; this.stumbleScale = 1;   // set by the world from the weather
@@ -114,7 +114,7 @@ export class Player {
     this.stumbleT = Math.max(0, this.stumbleT - dt);
     this.magnetT = Math.max(0, this.magnetT - dt);
     this.dashT = Math.max(0, this.dashT - dt);
-    this.jetpackT = Math.max(0, this.jetpackT - dt);
+    this.jetpackT = Math.max(0, this.jetpackT - dt); this.foxfireT = Math.max(0, this.foxfireT - dt); this.guideT = Math.max(0, this.guideT - dt);
     if (this.shieldT > 0) { this.shieldT = Math.max(0, this.shieldT - dt); if (this.shieldT === 0) this.shield = false; }
     this.iT = Math.max(0, this.iT - dt);
   }

@@ -108,9 +108,10 @@ export function makeTrail(parent, color = new THREE.Color(0.5, 1.2, 2.4), n = 90
   const obj = new THREE.Points(geo, new THREE.PointsMaterial({ map: radial('rgba(255,255,255,1)', 'rgba(255,255,255,0)'), size: 0.36, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   obj.frustumCulled = false; parent.add(obj);
   let head = 0, acc = 0;
-  return { obj, emit(x, y, z, dt, moving) {
-    acc += dt; if (moving && acc > 0.025) { acc = 0; if (TRACK.map) { TRACK.map(x + (Math.random() - 0.5) * 0.25, y + 0.35 + Math.random() * 0.25, z - 0.3, 0, _P); pos[head * 3] = _P.x; pos[head * 3 + 1] = _P.y; pos[head * 3 + 2] = _P.z; } else { pos[head * 3] = x + (Math.random() - 0.5) * 0.25; pos[head * 3 + 1] = y + 0.35 + Math.random() * 0.25; pos[head * 3 + 2] = z - 0.3; } age[head] = 0; head = (head + 1) % n; }
-    for (let i = 0; i < n; i++) { age[i] += dt; const a = Math.max(0, 1 - age[i] / 0.9); pos[i * 3 + 1] += dt * 0.8; col[i * 3] = color.r * a * 0.7; col[i * 3 + 1] = color.g * a * 0.7; col[i * 3 + 2] = color.b * a * 0.7; }
+  const tint = new THREE.Color(); const tints = new Float32Array(n * 3).fill(1);
+  return { obj, emit(x, y, z, dt, moving, colorOverride = null) {
+    acc += dt; if (moving && (acc > 0.025 || colorOverride)) { acc = 0; tint.copy(colorOverride || color); tints[head * 3] = tint.r / color.r; tints[head * 3 + 1] = tint.g / color.g; tints[head * 3 + 2] = tint.b / color.b; if (TRACK.map) { TRACK.map(x + (Math.random() - 0.5) * 0.25, y + 0.35 + Math.random() * 0.25, z - 0.3, 0, _P); pos[head * 3] = _P.x; pos[head * 3 + 1] = _P.y; pos[head * 3 + 2] = _P.z; } else { pos[head * 3] = x + (Math.random() - 0.5) * 0.25; pos[head * 3 + 1] = y + 0.35 + Math.random() * 0.25; pos[head * 3 + 2] = z - 0.3; } age[head] = 0; head = (head + 1) % n; }
+    for (let i = 0; i < n; i++) { age[i] += dt; const a = Math.max(0, 1 - age[i] / 0.9); pos[i * 3 + 1] += dt * 0.8; col[i * 3] = color.r * tints[i * 3] * a * 0.7; col[i * 3 + 1] = color.g * tints[i * 3 + 1] * a * 0.7; col[i * 3 + 2] = color.b * tints[i * 3 + 2] * a * 0.7; }
     geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
   } };
 }

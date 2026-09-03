@@ -42,7 +42,7 @@ export class World {
     this.log = [];                // inputs for replay/validation
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
-    this.bumpCool = 0; this.kaiju = null; this.setpiece = null;
+    this.bumpCool = 0; this.kaiju = null; this.setpiece = null; this.slowT = 0; this.dawnT = 0;
     this.weather = weatherOf(seed, 0); this.gustRng = mulberry32(mixSeed(seed, 0x9057)); this.nextGust = 6; this.gust = null;
   }
 
@@ -65,12 +65,14 @@ export class World {
     // --- shared forward motion: the pair runs together, a stumble slows both ---
     let mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
     if (this.runners.some(r => !r.disabled && r.dashT > 0)) mult *= 1.5; else if (this.runners.some(r => !r.disabled && r.jetpackT > 0)) mult *= 1.35;
+    if (this.slowT > 0) { mult *= 0.55; this.slowT = Math.max(0, this.slowT - dt); }
+    this.dawnT = Math.max(0, this.dawnT - dt);
     this.speed = speedAt(this.distance, this.cfg) * mult;
     const prevZ = this.distance;
     this.distance += this.speed * dt;
     this.score += (this.distance - prevZ) * W.SCORE_PER_M * (this.x2T > 0 ? 2 : 1);
     this.x2T = Math.max(0, this.x2T - dt);
-    for (const r of this.runners) { r.z = this.distance; if (r.disabled) continue; if (this._isAuto(r)) autopilot(this, r); r.step(dt); }
+    for (const r of this.runners) { r.z = this.distance; if (r.disabled) continue; if (this._isAuto(r) || r.guideT > 0) autopilot(this, r); r.step(dt); }
     if (!this.runners.some(r => r.disabled)) this._bump(dt);
 
     // --- sections ---
@@ -101,7 +103,7 @@ export class World {
       for (const c of this.pool.live) {
         if (c.z0 > p.z + 4 || c.z0 + c.length < prevZ - 4) continue;
         for (const cell of c.cells) {
-          if (cell.track !== p.track) continue;                       // only the track the body is on right now
+          if (cell.track !== p.track && !(cell.type === 'photon' && p.foxfireT > 0)) continue;   // only the track the body is on (fox-fire pulls from the whole road)
           const key = `${p.id}:${c.index}:${cell.z}:${cell.track}:${cell.lane}:${cell.type}`;
           if (this.resolved.has(key)) continue;
           const zc = cell.z, g = globalLane(cell.track, cell.lane);
@@ -125,7 +127,7 @@ export class World {
           if (prevZ < zc && p.z >= zc) {
             this.resolved.add(key);
             const onLane = cell.type === 'wave' || Math.abs(p.xLane - g) < 0.5;   // continuous: where the body actually is; waves span the road
-            if (cell.type === 'photon') { if (onLane || p.magnetT > 0) this._coin(cell, p); continue; }
+            if (cell.type === 'photon') { if (onLane || p.magnetT > 0 || p.foxfireT > 0) this._coin(cell, p); continue; }
             if (p.jetpackT > 0 && cell.type !== 'power') { if (onLane) this._clean(cell, p, true); continue; }   // flying: every ground hazard passes beneath
             if (cell.type === 'power') { if (onLane || p.magnetT > 0) this._power(cell, p); continue; }
             if (!onLane) {
@@ -141,7 +143,7 @@ export class World {
     // --- the typhoon ---
     const pressure = this.cfg.drift * Math.min(1, Math.max(0, this.distance - 1200) / 3000) * this.weather.pressure * (this.setpiece === 'avalanche' ? 2.2 : 1);   // no passive drain in the first 1.2 km
     const clean = this.runners.every(r => r.disabled || r.stumbleT === 0);
-    this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - pressure * dt);
+    this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - (this.dawnT > 0 ? 0 : pressure) * dt);
     if (this.storm <= 0) this._die('storm');
   }
 
@@ -185,8 +187,8 @@ export class World {
   }
 
   _coin(cell, p) {
-    if (cell.hi && p.y <= 0.8 && p.magnetT === 0 && p.jetpackT === 0) return;
-    const n = this.x2T > 0 ? 2 : 1;
+    if (cell.hi && p.y <= 0.8 && p.magnetT === 0 && p.jetpackT === 0 && p.foxfireT === 0) return;
+    const n = (this.x2T > 0 ? 2 : 1) * (p.foxfireT > 0 ? 3 : 1);
     this.coins += n; this.streak++;
     this.score += W.SCORE_COIN * n * (1 + Math.floor(this.streak / 10) * 0.5);
     this.storm = Math.min(W.STORM_MAX, this.storm + W.STORM_COIN);
@@ -198,12 +200,32 @@ export class World {
     switch (cell.kind) {
       case 'shield': p.shield = true; p.shieldT = P.SHIELD_T; break;
       case 'jetpack': p.jetpackT = P.JETPACK_T; p.stumbleT = 0; break;
+      case 'thunder': this.slowT = 6; break;
+      case 'foxfire': p.foxfireT = 8; p.magnetT = Math.max(p.magnetT, 8); break;
+      case 'dawn': this.storm = W.STORM_MAX; this.dawnT = 10; break;
+      case 'susanoo': this.storm = Math.min(W.STORM_MAX, this.storm + 20); this._sweep(p, 60, 'strike'); break;
+      case 'kagura': this._sweep(p, 40, 'transmute'); break;
+      case 'guide': p.guideT = 10; break;
       case 'magnet': p.magnetT = P.MAGNET_T; break;
       case 'dash': p.dashT = P.DASH_T; p.stumbleT = 0; break;
       case 'x2': this.x2T = W.X2_T; break;
       case 'heal': this.storm = Math.min(W.STORM_MAX, this.storm + W.STORM_HEAL); break;
     }
     this._emit({ type: 'power', cell, kind: cell.kind, runner: p.id });
+  }
+
+  /** Susanoo / Kagura: every hazard ahead on this runner's track is struck away or turned into a coin. */
+  _sweep(p, metres, how) {
+    for (const c of this.pool.live) {
+      if (c.z0 > this.distance + metres || c.z0 + c.length < this.distance) continue;
+      for (const cell of c.cells) {
+        if (cell.track !== p.track || cell.z <= this.distance + 1 || cell.z > this.distance + metres) continue;
+        if (!['stalk', 'arch', 'drusen', 'gap', 'wide', 'roller', 'wave'].includes(cell.type)) continue;
+        const key = `${p.id}:${c.index}:${cell.z}:${cell.track}:${cell.lane}:${cell.type}`;
+        if (how === 'transmute') { const old = cell.type; cell.type = 'photon'; cell.hi = false; cell.was = old; this._emit({ type: 'transmute', cell, runner: p.id }); }
+        else { this.resolved.add(key); this._emit({ type: 'strike', cell, runner: p.id }); }
+      }
+    }
   }
 
   _clean(cell, p, scored) { if (scored) this.score += W.SCORE_CLEAR; this._emit({ type: 'clear', cell, runner: p.id }); }

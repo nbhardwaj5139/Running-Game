@@ -30,13 +30,13 @@ function newWorld() {
     },
   });
   net?.attach(world);
-  if (renderer) { renderer.world = world; for (const v of [...renderer.views.keys()]) renderer._detachChunk({ index: v }); for (const c of world.pool.live) renderer._attachChunk(c); renderer.rootX = renderer.targetRootX = -(world.window - 1) * 2.2; renderer.saccadeT = 1; renderer.tailHist = []; }
+  if (renderer) renderer.reset(world);
 }
 
 function onDeath(e) {
   running = false;
-  const why = e.reason === 'fall' ? 'You fell into the vitreous.' : 'The Sleeper blinked.';
-  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.photons} photons · ${world.saccades} saccades read`;
+  const why = e.reason === 'fall' ? '落ちた — You fell through the road.' : '台風 — The typhoon took you.';
+  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.photons} coins · ${world.saccades} tremors survived`;
   hud.foot.textContent = 'press R / tap to run again';
   hud.msg.classList.remove('hidden');
   net?.death(e.distance); net?.runEnd(world.log, world.summary);
@@ -112,12 +112,12 @@ function frame(now) {
   hud.blink.querySelector('i').style.width = Math.max(0, 100 - (world.blink / W.BLINK_MAX) * 100) + '%';
   const dread = 1 - Math.max(0, world.blink) / W.BLINK_MAX;
   hud.vig.style.boxShadow = `inset 0 0 ${40 + dread * 220}px ${dread * 60}px rgba(5,0,2,${0.15 + dread * 0.7})`;
-  if (room) hud.room.innerHTML = `<span class="p">${players.length} in the eye</span> · ${net?.connected ? Math.round(net.rtt) + ' ms' : 'offline'}`;
+  if (room) hud.room.innerHTML = `<span class="p">${players.length} on the road</span> · ${net?.connected ? Math.round(net.rtt) + ' ms' : 'offline'}`;
 }
 
 newWorld();
-renderer = new Renderer(document.body, world, { reducedMotion });
-hud.hint.textContent = `seed ${seedParam}` + (room ? '' : ' · add ?room=NAME to share this eye');
+renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0' });
+hud.hint.textContent = `seed ${seedParam}` + (room ? '' : ' · add ?room=NAME to run this road together');
 if (room) joinRoom();
 requestAnimationFrame(frame);
 

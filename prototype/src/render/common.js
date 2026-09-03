@@ -74,10 +74,22 @@ export class InstancePool {
   flush() { if (!this.dirty) return; this.mesh.instanceMatrix.needsUpdate = true; if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true; this.dirty = false; }
 }
 
-const _M = new THREE.Matrix4(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _S = new THREE.Vector3(), _E = new THREE.Euler();
-/** Compose a (shared, reused) matrix: position, uniform-or-per-axis scale, yaw. Copy it if you keep it. */
+const _M = new THREE.Matrix4(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _S = new THREE.Vector3(), _E = new THREE.Euler(), _Q2 = new THREE.Quaternion();
+/** The track mapper: when set (by the renderer), every placement in track space (x across, y up, z along) becomes world space. */
+export const TRACK = { map: null };
+/** Compose a (shared, reused) matrix: position, uniform-or-per-axis scale, yaw — in track space, mapped through the track. Copy it if you keep it. */
 export function compose(x, y, z, sx = 1, sy = sx, sz = sx, ry = 0) {
+  if (TRACK.map) { TRACK.map(x, y, z, ry, _V, _Q); return _M.compose(_V, _Q, _S.set(sx, sy, sz)); }
   return _M.compose(_V.set(x, y, z), _Q.setFromEuler(_E.set(0, ry, 0)), _S.set(sx, sy, sz));
+}
+/** Map a mesh whose position/rotation were set in track space to world space (call once after placing it). */
+export function placeMesh(m) {
+  if (!TRACK.map) return m;
+  _Q2.setFromEuler(m.rotation);
+  TRACK.map(m.position.x, m.position.y, m.position.z, 0, m.position, _Q);
+  m.quaternion.copy(_Q).multiply(_Q2);
+  if (m.userData.mirror) m.scale.x = -Math.abs(m.scale.x);   // asymmetric art (text) keeps reading correctly
+  return m;
 }
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const clamp01 = (t) => Math.min(1, Math.max(0, t));

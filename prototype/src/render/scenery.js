@@ -4,7 +4,7 @@
 // pool; an unused pool costs nothing because the instance count tracks the highest
 // live index), landmarks are pooled single meshes. Deterministic from ctx.rng.
 import * as THREE from 'three';
-import { PAINT, paint, merge, box, cyl, cone, sph, radial, canvasTexture, MeshPool, InstancePool, compose, lerp } from './common.js';
+import { PAINT, paint, merge, box, cyl, cone, sph, radial, canvasTexture, MeshPool, InstancePool, compose, lerp, placeMesh } from './common.js';
 import { seasonBlend } from '../core/chunks.js';
 import { mulberry32 } from '../core/rng.js';
 
@@ -239,7 +239,7 @@ export function buildScenery(parent, neonFactory) {
     const V = { index: chunk.index, z0: ctx.z0, len: ctx.len, rng: ctx.rng, season: ctx.season, snow: ctx.season === 3, col: new THREE.Color(), inst: [], meshes: [], neons: [], wires: [], nLights: 0 };
     V.kit = seasonKit(ctx.season, seasonBlend(chunk.index), ctx.rng);
     V.take = (pool, m, c) => { const i = pool.take(m, c); if (i >= 0) V.inst.push(pool, i); return i; };
-    V.single = (mp, x, y, z, ry = 0) => { const m = mp.take(); m.position.set(x, y, z); m.rotation.y = ry; V.meshes.push(mp, m); return m; };
+    V.single = (mp, x, y, z, ry = 0) => { const m = mp.take(); m.position.set(x, y, z); m.rotation.y = ry; placeMesh(m); V.meshes.push(mp, m); return m; };
     V.light = (x, z, y, i, c) => { if (V.nLights < MAX_LIGHTS) { V.nLights++; ctx.light(x, z, y, i, c); } };
     V.neon = (text, color, vertical) => { const m = neonTake(text, color, vertical); V.neons.push(m); return m; };
     V.tint = (list) => { const t = list[Math.floor(V.rng() * list.length)]; return V.col.setRGB(t[0], t[1], t[2]); };
@@ -319,8 +319,8 @@ export function buildScenery(parent, neonFactory) {
     for (let i = 0; i < nNeon && faces.length; i++) {
       const f = faces.splice(ri(rng, 0, faces.length - 1), 1)[0], [word, css] = NEON_WORDS[ri(rng, 0, NEON_WORDS.length - 1)], vertical = rng() < 0.5;
       const m = V.neon(word, css, vertical), bb = m.geometry.boundingBox, w = bb.max.x - bb.min.x, h = bb.max.y - bb.min.y, y = Math.max(2.5, Math.min(f.h - h - 0.5, 2.8 + rng() * 6));
-      if (vertical) { const x = f.s * Math.max(8.7 + w / 2, Math.abs(f.x) - w / 2 - 0.3); m.position.set(x, y + h / 2, f.z); aim(m, Math.PI); V.light(x, f.z, y, 1.0, rgb(css)); }
-      else { m.position.set(f.x - f.s * 0.15, y + h / 2, f.z); aim(m, f.s > 0 ? -Math.PI / 2 : Math.PI / 2); V.light(f.x - f.s * 0.6, f.z, y, 1.0, rgb(css)); }
+      if (vertical) { const x = f.s * Math.max(8.7 + w / 2, Math.abs(f.x) - w / 2 - 0.3); m.position.set(x, y + h / 2, f.z); aim(m, Math.PI); placeMesh(m); V.light(x, f.z, y, 1.0, rgb(css)); }
+      else { m.position.set(f.x - f.s * 0.15, y + h / 2, f.z); aim(m, f.s > 0 ? -Math.PI / 2 : Math.PI / 2); placeMesh(m); V.light(f.x - f.s * 0.6, f.z, y, 1.0, rgb(css)); }
     }
     for (const [s, z] of [[-1, z0 + 5], [1, z0 + 14], [-1, z0 + 23], [1, z0 + 32]]) {                  // street lamps
       V.take(P.lamp, compose(s * 8.8, 0, z, 1, 1, 1, s < 0 ? 0 : Math.PI)); const gx = s * 7.8;
@@ -409,7 +409,7 @@ export function buildScenery(parent, neonFactory) {
     const z = V.z0 + 2.5;
     if (biome === 0) { V.single(P1.bigTorii, 0, 0, z); if (V.snow) V.take(P.snowCap, compose(0, 8.5, z, 12, 0.18, 0.55)); return; }
     V.single(P1.gantry, 0, 0, z); const [text, css] = GATE[biome];
-    const m = V.neon(text, css, false); m.position.set(0, 7.75, z - 0.2); aim(m, Math.PI); V.light(0, z, 7.75, 1.1, rgb(css));
+    const m = V.neon(text, css, false); m.position.set(0, 7.75, z - 0.2); aim(m, Math.PI); placeMesh(m); V.light(0, z, 7.75, 1.1, rgb(css));
   }
 
   // ---- public API --------------------------------------------------------------------------------

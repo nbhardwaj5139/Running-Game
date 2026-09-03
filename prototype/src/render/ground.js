@@ -17,8 +17,10 @@ const vert = /* glsl */`
   #include <fog_pars_vertex>
   uniform float uZ0;
   varying vec2 vP;                                   // (x, absolute track z)
+  attribute vec2 aTrack;                             // set by the renderer when the floor is bent along the track
+  uniform float uBent;
   void main() {
-    vP = vec2(position.x, uZ0 + ${(CHUNK_LEN / 2).toFixed(1)} + position.z);
+    vP = uBent > 0.5 ? aTrack : vec2(position.x, uZ0 + ${(CHUNK_LEN / 2).toFixed(1)} + position.z);
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }`;
@@ -160,10 +162,10 @@ const frag = /* glsl */`
   }`;
 
 export function makeGroundMaterial() {
-  return new THREE.ShaderMaterial({
+  return new THREE.ShaderMaterial({ side: THREE.DoubleSide,
     vertexShader: vert, fragmentShader: frag, fog: true,
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-      uZ0: { value: 0 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
+      uZ0: { value: 0 }, uBent: { value: 0 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
       uSnow: { value: 0 }, uNight: { value: 0 }, uWet: { value: 0 }, uLightN: { value: 0 },
       uLight: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()) },
       uLightCol: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Color()) },

@@ -2,7 +2,8 @@
 // snow, fireflies, rain, dust, wind ribbons), spirit-fire trails, the
 // shinkansen, and shock rings.
 import * as THREE from 'three';
-import { radial, canvasTexture } from './common.js';
+import { radial, canvasTexture, TRACK, placeMesh } from './common.js';
+const _P = new THREE.Vector3();
 
 const petalTex = () => canvasTexture(32, 32, (g) => { g.fillStyle = '#ffd3e3'; g.beginPath(); g.ellipse(16, 16, 12, 7, 0.6, 0, Math.PI * 2); g.fill(); g.fillStyle = '#ffaacb'; g.beginPath(); g.ellipse(16, 16, 6, 3, 0.6, 0, Math.PI * 2); g.fill(); });
 const leafTex = () => canvasTexture(32, 32, (g) => { g.fillStyle = '#fff'; g.beginPath(); g.moveTo(16, 2); g.lineTo(26, 12); g.lineTo(30, 24); g.lineTo(18, 20); g.lineTo(16, 30); g.lineTo(14, 20); g.lineTo(2, 24); g.lineTo(6, 12); g.closePath(); g.fill(); g.strokeStyle = 'rgba(120,40,20,0.6)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(16, 4); g.lineTo(16, 28); g.stroke(); });
@@ -108,7 +109,7 @@ export function makeTrail(parent, color = new THREE.Color(0.5, 1.2, 2.4), n = 90
   obj.frustumCulled = false; parent.add(obj);
   let head = 0, acc = 0;
   return { obj, emit(x, y, z, dt, moving) {
-    acc += dt; if (moving && acc > 0.025) { acc = 0; pos[head * 3] = x + (Math.random() - 0.5) * 0.25; pos[head * 3 + 1] = y + 0.35 + Math.random() * 0.25; pos[head * 3 + 2] = z - 0.3; age[head] = 0; head = (head + 1) % n; }
+    acc += dt; if (moving && acc > 0.025) { acc = 0; if (TRACK.map) { TRACK.map(x + (Math.random() - 0.5) * 0.25, y + 0.35 + Math.random() * 0.25, z - 0.3, 0, _P); pos[head * 3] = _P.x; pos[head * 3 + 1] = _P.y; pos[head * 3 + 2] = _P.z; } else { pos[head * 3] = x + (Math.random() - 0.5) * 0.25; pos[head * 3 + 1] = y + 0.35 + Math.random() * 0.25; pos[head * 3 + 2] = z - 0.3; } age[head] = 0; head = (head + 1) % n; }
     for (let i = 0; i < n; i++) { age[i] += dt; const a = Math.max(0, 1 - age[i] / 0.9); pos[i * 3 + 1] += dt * 0.8; col[i * 3] = color.r * a * 0.7; col[i * 3 + 1] = color.g * a * 0.7; col[i * 3 + 2] = color.b * a * 0.7; }
     geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
   } };
@@ -133,7 +134,7 @@ export function makeShockRing(parent) {
     m.rotation.x = -Math.PI / 2; m.visible = false; parent.add(m); rings.push({ m, life: 9 });
   }
   return {
-    burst(x, z, color) { const r = rings.reduce((a, b) => (a.life > b.life ? a : b)); r.life = 0; r.m.position.set(x, 0.05, z); r.m.material.color.copy(color); r.m.visible = true; },
+    burst(x, z, color) { const r = rings.reduce((a, b) => (a.life > b.life ? a : b)); r.life = 0; r.m.position.set(x, 0.05, z); r.m.rotation.set(-Math.PI / 2, 0, 0); placeMesh(r.m); r.m.material.color.copy(color); r.m.visible = true; },
     update(dt) { for (const r of rings) { if (r.life > 1) { r.m.visible = false; continue; } r.life += dt * 2.2; const k = 1 + r.life * 3.5; r.m.scale.set(k, k, 1); r.m.material.opacity = (1 - r.life) * 0.55; } },
   };
 }

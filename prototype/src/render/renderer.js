@@ -12,12 +12,13 @@ import { LANE_W, LANES, TRACK_W, CHUNK_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, tr
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
-import { MeshPool, InstancePool, compose, radial, canvasTexture, lerp, clamp01, paint, merge, box, cyl, cone, sph, GLOW } from './common.js';
+import { MeshPool, InstancePool, compose, radial, canvasTexture, lerp, clamp01, paint, merge, box, cyl, cone, sph, GLOW, TRACK, placeMesh } from './common.js';
+import { Track } from './track.js';
 import { buildObstacles, buildPowers, coinGeometry } from './props.js';
 import { buildCharacter, characterById } from './characters.js';
 import { getTheme } from './theme.js';
 import { makeSky } from './sky.js';
-import { makeGroundMaterial, groundGeometry, MAX_LIGHTS } from './ground.js';
+import { makeGroundMaterial, GROUND_W, MAX_LIGHTS } from './ground.js';
 import { makeGrass, makeFlowers } from './vegetation.js';
 import { makeParticles, makeTrail, makeTrain, makeShockRing } from './fx.js';
 import { buildScenery } from './scenery.js';
@@ -47,7 +48,6 @@ const GRADE = {
 function neonTexture(word, color, vertical) {
   const W_ = vertical ? 96 : 320, H_ = vertical ? 64 * word.length + 40 : 112;
   return canvasTexture(W_, H_, (g, w, h) => {
-    g.translate(w, 0); g.scale(-1, 1);                          // pre-mirrored: the stage flips x
     g.fillStyle = 'rgba(8,8,18,0.88)'; g.fillRect(0, 0, w, h);
     g.strokeStyle = color; g.lineWidth = 6; g.shadowColor = color; g.shadowBlur = 18; g.strokeRect(6, 6, w - 12, h - 12);
     g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowBlur = 24;
@@ -113,6 +113,7 @@ function kaijuProps(obstacles) {
   };
 }
 const PAINT_REF = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+const _V3 = new THREE.Vector3(), _V3b = new THREE.Vector3(), _V3c = new THREE.Vector3(), _Q1 = new THREE.Quaternion(), _M4 = new THREE.Matrix4(), _UP = new THREE.Vector3(0, 1, 0);
 
 export class Renderer {
   constructor(canvasParent, world, opts = {}) {
@@ -138,9 +139,12 @@ export class Renderer {
     this.sky = makeSky(); s.add(this.sky.group);
     const base = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), new THREE.MeshBasicMaterial({ color: 0x141020 })); base.rotation.x = -Math.PI / 2; base.position.y = -0.06; s.add(base); this.base = base;
 
-    // the mirror stage: sim space is left-handed for a right-handed camera, so flip x once here
-    this.stage = new THREE.Group(); this.stage.scale.x = -1; s.add(this.stage);
-    this.root = new THREE.Group(); this.stage.add(this.root);    // scrolls in z
+    // the track spline maps track space (x across, h up, s along) to world space; everything is placed through it
+    this.track = new Track(world.seed);
+    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x, h, z, ry, outPos, outQuat);
+    this.stage = new THREE.Group(); s.add(this.stage);
+    this.root = new THREE.Group(); this.stage.add(this.root);
+    this.fxGroup = new THREE.Group(); s.add(this.fxGroup);        // particle fields ride the runners' frame
 
     this._buildAssets();
     this.views = new Map();
@@ -167,7 +171,7 @@ export class Renderer {
     this.flash = 0; this.shake = 0; this.roll = 0;
 
     // particles (camera-space) + set-dressing
-    this.particles = makeParticles(s);
+    this.particles = makeParticles(this.fxGroup);
     this.train = makeTrain(); this.root.add(this.train); this.trainTimer = 6;
     this.wind = new THREE.Vector3(0, 0, 1);
     this.themeNow = null;
@@ -211,8 +215,17 @@ export class Renderer {
     this.obstacles = buildObstacles();
     this.pools = {};                        // key -> MeshPool
     this.pool = (key, geo, mat) => this.pools[key] ??= new MeshPool(key, geo, mat, this.root);
-    this.floorPool = new MeshPool('floor', groundGeometry(), null, this.root);
-    this.floorPool.take = () => { let m = this.floorPool.free.pop(); if (!m) { m = new THREE.Mesh(groundGeometry(), makeGroundMaterial()); m.userData.pool = 'floor'; this.root.add(m); } m.visible = true; return m; };
+    this.floorPool = new MeshPool('floor', null, null, this.root);
+    this.floorPool.take = () => {
+      let m = this.floorPool.free.pop();
+      if (!m) {
+        const g = new THREE.PlaneGeometry(GROUND_W, CHUNK_LEN, 44, 18); g.rotateX(-Math.PI / 2);
+        g.userData.base = g.attributes.position.array.slice();
+        g.setAttribute('aTrack', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+        m = new THREE.Mesh(g, makeGroundMaterial()); m.material.uniforms.uBent.value = 1; m.frustumCulled = false; m.userData.pool = 'floor'; this.root.add(m);
+      }
+      m.visible = true; return m;
+    };
     this.coinPool = new InstancePool(this.root, coinGeometry(), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.35, 1.0, 0.32) }), 600);
     this.coins = [];
     this.powers = buildPowers();
@@ -231,6 +244,17 @@ export class Renderer {
     this.kaijuState = { id: null, y: -42, throwT: 9, stompT: 0, side: 1 };
   }
 
+  /** Bend a floor mesh along the track: vertices go to world space, aTrack keeps (x, s) for the surface patterns. */
+  _bendFloor(floor, z0) {
+    const g = floor.geometry, base = g.userData.base, pos = g.attributes.position.array, tr = g.attributes.aTrack.array;
+    for (let i = 0; i < g.attributes.position.count; i++) {
+      const x = base[i * 3], lz = base[i * 3 + 2], sAbs = z0 + CHUNK_LEN / 2 + lz;
+      this.track.map(x, 0, sAbs, 0, _V3);
+      pos[i * 3] = _V3.x; pos[i * 3 + 1] = _V3.y; pos[i * 3 + 2] = _V3.z; tr[i * 2] = x; tr[i * 2 + 1] = sAbs;
+    }
+    g.attributes.position.needsUpdate = true; g.attributes.aTrack.needsUpdate = true; g.computeVertexNormals();
+  }
+
   _obstacleVariant(biome, type, v) {
     const list = this.obstacles[BIOMES[biome]]?.[type] || this.obstacles.mountain?.[type];
     if (!list?.length) return null;
@@ -241,7 +265,7 @@ export class Renderer {
   _attachChunk(c) {
     const biome = c.biome, season = c.season; const rng = mulberry32(mixSeed(this.world.seed ^ 0x5eed, c.index));
     const night = nightAt(this.world.distance);
-    const floor = this.floorPool.take(); floor.position.set(0, 0, c.z0 + CHUNK_LEN / 2);
+    const floor = this.floorPool.take(); this._bendFloor(floor, c.z0);
     const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = snowAt(c.index);
     const v = { floor, meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
@@ -254,15 +278,15 @@ export class Renderer {
       }
       if (cell.type === 'power') {
         const pw = this.powers[cell.kind]; if (!pw) continue;
-        const m = this.pool(`power:${cell.kind}`, pw.geo, pw.mat).take(); m.position.set(x, 0.5, cell.z); m.userData.cell = cell;
+        const m = this.pool(`power:${cell.kind}`, pw.geo, pw.mat).take(); m.position.set(x, 0.5, cell.z); placeMesh(m); m.userData.cell = cell;
         const ring = this.pool(`ring:${cell.kind}`, this.ringGeo, new THREE.MeshBasicMaterial({ color: pw.ring, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })).take();
-        ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.05, cell.z);
+        ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.05, cell.z); placeMesh(ring);
         v.meshes.push(m, ring); v.powers.push({ m, ring, cell, z: cell.z, x }); light(x, cell.z, 0.8, 0.5, [pw.ring.r, pw.ring.g, pw.ring.b]);
         continue;
       }
       if (cell.type === 'wave') {
         const m = this.pools[`wave:${cell.by || 'daidarabotchi'}`].take(); m.userData.cell = cell;
-        m.position.set(trackX(cell.track), 0, cell.z); m.scale.set(1, 0.001, 1); v.meshes.push(m);
+        m.position.set(trackX(cell.track), 0, cell.z); placeMesh(m); m.scale.set(1, 0.001, 1); v.meshes.push(m);
         v.thrown.push({ m, cell, x: trackX(cell.track), start: null, landed: false, wave: true }); continue;
       }
       const kp = cell.thrown ? this.kaijuProps[cell.by]?.[cell.type] : null;
@@ -299,7 +323,8 @@ export class Renderer {
 
   /** Swap to a fresh world (restart) without reallocating anything. */
   reset(world) {
-    this.world = world;
+    this.world = world; this.track = new Track(world.seed);
+    TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x, h, z, ry, outPos, outQuat);
     for (const k of [...this.views.keys()]) this._detachChunk({ index: k });
     for (const c of world.pool.live) this._attachChunk(c);
     this.train.visible = false; this.trainTimer = 6;
@@ -330,7 +355,7 @@ export class Renderer {
     const seasonT = (idx % SEASON_LEN) / SEASON_LEN;
     const night = nightAt(w.distance);
     const dread = 1 - Math.max(0, w.storm) / W.STORM_MAX;
-    this.root.position.z = -w.distance;
+    this.track.ensure(idx + 8);
 
     // ---- theme → lights, fog, ground
     const th = getTheme(season, night, biome);
@@ -356,29 +381,41 @@ export class Renderer {
       const slide = p.action === 'slide', air = !p.grounded;
       const laneVel = R.prevX === null ? 0 : (px - R.prevX) / Math.max(dt, 1e-3); R.prevX = px;
       R.lean += ((-laneVel * 0.05) - R.lean) * Math.min(1, dt * 10); leanSum += R.lean;
-      g.position.set(px, p.y + (p.grounded && !slide ? 0.035 * Math.abs(Math.sin(this.phase)) : 0), 0);
+      g.position.set(px, p.y + (p.grounded && !slide ? 0.035 * Math.abs(Math.sin(this.phase)) : 0), w.distance);
       R.rig.legs.forEach((l, i) => { l.rotation.x = air ? 0.9 : Math.sin(this.phase + (i % 2 ? Math.PI : 0) + (i >= 2 ? Math.PI * 0.5 : 0)) * 0.95; });
       if (R.rig.tail) { R.rig.tail.rotation.z = Math.sin(this.phase * 0.5) * 0.3; R.rig.tail.rotation.x = air ? -0.5 : 0; }
       const dash = p.dashT > 0;
       g.scale.set(1, slide ? 0.55 : 1, slide ? 1.25 : dash ? 1.15 : 1);
-      g.rotation.set(slide ? 0.25 : air ? -0.25 : 0, -laneVel * 0.06, -R.lean);
+      g.rotation.set(slide ? 0.25 : air ? -0.25 : 0, -laneVel * 0.06, -R.lean); placeMesh(g);
       g.visible = !(p.iT > 0 && Math.floor(this.time * 18) % 2 === 0);
       R.hurt = Math.max(0, R.hurt - dt);
       const hurtGlow = R.hurt > 0 ? 0.5 + 0.5 * Math.sin(this.time * 40) : 0;
       for (const m of R.rig.mats) if (m.emissive) m.emissive.setRGB(hurtGlow + (dash ? 0.25 : 0), hurtGlow * 0.1 + (dash ? 0.35 : 0), dash ? 0.6 : 0);
       R.bubble.visible = p.shield; R.bubble.scale.setScalar(1 + 0.05 * Math.sin(this.time * 6));
       R.aura.material.opacity += ((p.magnetT > 0 ? 0.8 : 0) - R.aura.material.opacity) * Math.min(1, dt * 6);
-      R.shadow.position.set(px, 0.015, 0); const sh = Math.max(0.3, 1 - p.y * 0.3); R.shadow.scale.set(sh, sh, 1); R.shadow.material.opacity = 0.4 * sh;
+      R.shadow.position.set(px, 0.015, w.distance); R.shadow.rotation.set(-Math.PI / 2, 0, 0); placeMesh(R.shadow); const sh = Math.max(0.3, 1 - p.y * 0.3); R.shadow.scale.set(sh, sh, 1); R.shadow.material.opacity = 0.4 * sh;
       R.trail.emit(px, p.y, w.distance, dt, w.alive && w.speed > 1);
     }
 
-    // ---- camera: rock steady. No roll, no jitter, no bob — only a slow field-of-view ease with speed.
+    // ---- camera: follows the road's own frame — behind on the spline, aimed at a point ahead on the spline, up = road normal.
+    // Smoothly damped; no roll, no jitter. Turns and crests read because the camera looks *into* them before the runners arrive.
     const cam = this.camera;
     const targetFov = 66 + 10 * clamp01((w.speed - P.SPEED_BASE) / (P.SPEED_MAX - P.SPEED_BASE));
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 1.5); cam.updateProjectionMatrix();
-    cam.position.set(0, 5.2, -8.5);
-    cam.lookAt(0, 1.3, 22);
+    const fb = this.track.frameAt(Math.max(0, w.distance - 8.5));
+    const slope = Math.asin(THREE.MathUtils.clamp(fb.T.y, -1, 1));
+    _V3.copy(fb.P).addScaledVector(fb.N, 5.2 + Math.max(0, -slope) * 4);
+    const camUp = _V3b.copy(fb.N).lerp(_UP, 0.35).normalize();
+    const fa = this.track.frameAt(w.distance + 22);
+    const aim = _V3c.copy(fa.P).addScaledVector(fa.N, 1.3);
+    if (!this.camInit) { cam.position.copy(_V3); this.camInit = true; }
+    cam.position.lerp(_V3, 1 - Math.exp(-dt * 7));
+    _M4.lookAt(cam.position, aim, camUp); _Q1.setFromRotationMatrix(_M4);
+    cam.quaternion.slerp(_Q1, 1 - Math.exp(-dt * 6));
     this.shake = 0;
+    // things that ride with the camera / runners
+    this.sky.group.position.set(cam.position.x, 0, cam.position.z);
+    const fr = this.track.frameAt(w.distance); this.fxGroup.position.copy(fr.P); this.fxGroup.quaternion.copy(this.track.quatAt(w.distance));
 
     // ---- typhoon
     this.storm.position.y = 34 - dread * 24 + (w.alive ? 0 : -9);
@@ -391,8 +428,8 @@ export class Renderer {
     for (const c of this.coins) if (c.i >= 0) this.coinPool.set(c.i, compose(c.x, c.y + 0.08 * Math.sin(this.time * 4 + c.z), c.z, 1, 1, 1, spin + c.z));
     this.coinPool.flush();
     for (const v of this.views.values()) {
-      for (const pw of v.powers) { pw.m.position.y = 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z); pw.m.rotation.y += dt * 1.6; const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); }
-      for (const r of v.rollers) { r.m.position.x = roadX(r.cell.track * LANES + rollerLaneAt(r.cell, w.tick)); r.m.rotation.y = r.cell.dir * this.time * 3; }
+      for (const pw of v.powers) { pw.m.position.set(pw.x, 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z), pw.z); pw.m.rotation.set(0, this.time * 1.6, 0); placeMesh(pw.m); const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); }
+      for (const r of v.rollers) { r.m.position.set(roadX(r.cell.track * LANES + rollerLaneAt(r.cell, w.tick)), 0, r.cell.z); r.m.rotation.set(0, r.cell.dir * this.time * 3, 0); placeMesh(r.m); }
     }
     // ---- kaiju: rises beside the road for the last chunks of a season, stomps, and throws
     const K = this.kaijuState, kj = w.kaiju;
@@ -404,7 +441,7 @@ export class Renderer {
       else r.group.visible = false;
       if (!r.group.visible) continue;
       K.stompT += dt; const stomp = Math.abs(Math.sin(K.stompT * 2.8));
-      r.group.position.set(K.side * 7, K.y * 1.4 + stomp * 1.4 - 1.4, 108); r.group.scale.set(K.side * 1.4, 1.4, 1.4); r.group.rotation.y = K.side * 0.5;
+      r.group.position.set(K.side * 7, K.y * 1.4 + stomp * 1.4 - 1.4, w.distance + 108); r.group.scale.set(K.side * 1.4, 1.4, 1.4); r.group.rotation.set(0, K.side * 0.5, 0); placeMesh(r.group);
       K.throwT += dt; const swing = K.throwT < 0.55 ? Math.sin((K.throwT / 0.55) * Math.PI) : 0;
       r.arm.rotation.x = -0.35 - swing * 1.7; r.arm.rotation.z = -0.25;
       if (!kj) K.id = K.y <= -41 ? null : K.id;
@@ -415,13 +452,13 @@ export class Renderer {
       if (dz > lead) continue;
       if (!t.start) { t.start = { x: K.side * 2, y: 30, z: w.distance + 100 }; K.throwT = 0; t.m.visible = true; }
       const p = clamp01(1 - (dz - 4) / (lead - 4));
-      if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); t.m.position.set(t.x, 0, t.cell.z); }
-      else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.x = p * 6 * (t.cell.v % 2 ? 1 : -1); }
-      if (p >= 1) { t.landed = true; t.m.rotation.x = 0; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); }
+      if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); }
+      else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.set(p * 6 * (t.cell.v % 2 ? 1 : -1), 0, 0); placeMesh(t.m); }
+      if (p >= 1) { t.landed = true; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); t.m.rotation.set(0, 0, 0); placeMesh(t.m); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); }
     }
     // shinkansen on the city viaduct
-    if (this.train.visible) { this.train.position.z -= 62 * dt; if (this.train.position.z < w.distance - 70) this.train.visible = false; }
-    else if (biome === 1 && (this.trainTimer -= dt) <= 0) { this.trainTimer = 9 + Math.random() * 8; this.train.visible = true; this.train.position.set(16, 6.6, w.distance + 230); }
+    if (this.train.visible) { this.trainS -= 62 * dt; this.train.position.set(16, 6.6, this.trainS); this.train.rotation.set(0, 0, 0); placeMesh(this.train); if (this.trainS < w.distance - 70) this.train.visible = false; }
+    else if (biome === 1 && (this.trainTimer -= dt) <= 0) { this.trainTimer = 9 + Math.random() * 8; this.train.visible = true; this.trainS = w.distance + 230; }
 
     this.composer.render();
   }

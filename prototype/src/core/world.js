@@ -220,7 +220,7 @@ export class World {
   }
 
   /** Blink surge from multiplayer ("the eye reflexes toward the last runner"). */
-  surgeBlink(m) { this.blink -= m; if (this.blink <= 0) this._die('blink'); }
+  surgeBlink(m) { this.log.push({ t: this.tick, b: m }); this.blink -= m; if (this.blink <= 0) this._die('blink'); }
 
   get summary() {
     return { seed: this.seed, distance: Math.floor(this.player.distance), score: Math.floor(this.score), photons: this.photons, saccades: this.saccades, reason: this.deathReason, ticks: this.tick };
@@ -236,9 +236,9 @@ export function replay(seed, log, maxTicks = 60 * 60 * 30, solo = true) {
       const e = log[i++];
       if (e.i) w.player.input(e.i);
       else if (e.s) { w.pending = { dir: e.s.dir, atTick: e.s.at, by: e.s.by }; w.nextAutoSaccade = Infinity; }
+      else if (e.b) { w.blink -= e.b; if (w.blink <= 0) w._die('blink'); }
     }
     w.step();
-    if (i >= log.length && !w.pending && w.nextAutoSaccade === Infinity) { /* keep running to death */ }
   }
   return w.summary;
 }

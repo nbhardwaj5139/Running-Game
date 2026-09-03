@@ -73,7 +73,7 @@ export class Renderer {
     s.background = new THREE.Color(COLORS.bg);
     s.fog = new THREE.Fog(COLORS.fog, 40, 120);
     this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 300);
-    this.camera.position.set(0, 3.4, -6.5);
+    this.camera.position.set(0, 4.0, -7.5);
 
     s.add(new THREE.HemisphereLight(0xffb08a, 0x2a0610, 0.9));
     const key = new THREE.DirectionalLight(0xffd9b0, 1.4); key.position.set(3, 8, 10); s.add(key);
@@ -93,7 +93,7 @@ export class Renderer {
     const pm = new THREE.MeshStandardMaterial({ color: COLORS.player, emissive: 0xffb070, emissiveIntensity: 0.9, roughness: 0.3 });
     this.body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 24, 16), pm); this.body.position.y = 0.55; this.player.add(this.body);
     this.tail = [];
-    for (let i = 0; i < 5; i++) { const t = new THREE.Mesh(new THREE.SphereGeometry(0.3 - i * 0.045, 12, 8), pm); this.player.add(t); this.tail.push(t); }
+    for (let i = 0; i < 5; i++) { const t = new THREE.Mesh(new THREE.SphereGeometry(0.22 - i * 0.035, 12, 8), pm); this.player.add(t); this.tail.push(t); }
     const pl = new THREE.PointLight(0xffc080, 18, 12, 1.8); pl.position.y = 1; this.player.add(pl);
     this.tailHist = [];
 
@@ -162,7 +162,7 @@ export class Renderer {
       m.scale.set(1, 1, 1); m.rotation.set(0, 0, 0);
       switch (cell.type) {
         case 'stalk': m.position.set(x, 1.55, cell.z); break;
-        case 'arch': m.position.set(x, 0.05, cell.z); m.rotation.y = Math.PI / 2; m.scale.set(1, 0.95, 1); break;
+        case 'arch': m.position.set(x, 0.05, cell.z); m.scale.set(1, 0.95, 1); break;   // arc spans the lane in XY, facing the runner
         case 'drusen': m.position.set(x, 0.05, cell.z); m.scale.set(1, 0.42, 1); break;
         case 'gap': m.position.set(x, 0.04, cell.z); break;
         case 'photon': m.position.set(x, cell.hi ? 1.6 : 0.7, cell.z); break;
@@ -198,7 +198,7 @@ export class Renderer {
   rivalHint(id, h) {
     let r = this.rivals.get(id);
     if (!r) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), new THREE.MeshBasicMaterial({ color: COLORS.rival, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), new THREE.MeshBasicMaterial({ color: COLORS.rival, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
       this.root.add(m); r = { mesh: m, from: { ...h }, to: { ...h }, t: 1 }; this.rivals.set(id, r);
     }
     r.from = { z: r.mesh.position.z, y: r.mesh.position.y - 0.55, lane: h.lane }; r.to = { ...h }; r.t = 0;
@@ -227,7 +227,7 @@ export class Renderer {
     this.body.position.y = slide ? 0.3 : 0.55;
     this.body.rotation.x += dt * (p.speed * 0.4);
     this.tailHist.unshift({ x: px, y: p.y + (slide ? 0.3 : 0.55) }); if (this.tailHist.length > 40) this.tailHist.pop();
-    this.tail.forEach((t, i) => { const h = this.tailHist[Math.min(this.tailHist.length - 1, (i + 1) * 4)]; t.position.set(h.x - px, h.y - p.y, -(i + 1) * 0.55); });
+    this.tail.forEach((t, i) => { const h = this.tailHist[Math.min(this.tailHist.length - 1, (i + 1) * 2)]; t.position.set(h.x - px, h.y - p.y, -(i + 1) * 0.28); });
     if (p.stumbleT > 0) this.body.material.emissiveIntensity = 0.3 + 0.7 * Math.abs(Math.sin(this.time * 30)); else this.body.material.emissiveIntensity = 0.9;
 
     // camera: soft follow, FOV widens with speed, roll/shake on saccade & stumble
@@ -235,9 +235,9 @@ export class Renderer {
     const targetFov = 60 + 14 * ((p.speed - 11) / 13);
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
     cam.position.x += (px * 0.45 - cam.position.x) * Math.min(1, dt * 8);
-    cam.position.y += (3.4 + p.y * 0.35 - cam.position.y) * Math.min(1, dt * 6);
+    cam.position.y += (4.0 + p.y * 0.35 - cam.position.y) * Math.min(1, dt * 6);
     this.roll *= Math.exp(-dt * 6); this.shake *= Math.exp(-dt * 5);
-    cam.lookAt(px * 0.3 + this.shake * 0.3 * Math.sin(this.time * 53), 1.1, 14);
+    cam.lookAt(px * 0.3 + this.shake * 0.3 * Math.sin(this.time * 53), 1.0, 16);
     cam.rotateZ(this.roll + this.shake * 0.02 * Math.sin(this.time * 70));   // roll after lookAt or it is overwritten
 
     // the Blink: the lid descends as the margin shrinks (fully open at BLINK_MAX, covers the frame at 0)

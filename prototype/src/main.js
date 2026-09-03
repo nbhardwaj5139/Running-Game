@@ -122,4 +122,4 @@ if (room) joinRoom();
 requestAnimationFrame(frame);
 
 // expose for debugging / headless smoke tests
-globalThis.__vitreous = { get world() { return world; }, renderer, start, press, get running() { return running; } };
+globalThis.__vitreous = { get world() { return world; }, get net() { return net; }, renderer, start, press, get running() { return running; } };

@@ -14,7 +14,8 @@ function loadSocketIo() {
 export class NetClient {
   constructor({ room, name, onWelcome, onPlayers, onHint, onNerve, onSaccade, onDenied, onSurge, onDeath, onLeave, onStatus }) {
     Object.assign(this, { room, name, onWelcome, onPlayers, onHint, onNerve, onSaccade, onDenied, onSurge, onDeath, onLeave, onStatus });
-    this.id = null; this.tickOffset = 0; this.rtt = 0; this.world = null; this.lastHint = 0; this.connected = false;
+    this.id = null; this.rtt = 0; this.world = null; this.lastHint = 0; this.connected = false;
+    this.serverTickBase = 0; this.baseTime = performance.now();   // server tick <-> wall clock (not sim ticks: the sim can pause)
   }
 
   async connect() {
@@ -36,8 +37,11 @@ export class NetClient {
   }
 
   attach(world) { this.world = world; }
-  _sync(serverTick) { if (this.world) this.tickOffset = serverTick - this.world.tick; }
-  toLocalTick(serverTick) { return serverTick - this.tickOffset; }
+  _sync(serverTick) { this.serverTickBase = serverTick; this.baseTime = performance.now(); }
+  /** Best estimate of the server's tick right now. */
+  serverTickNow() { return this.serverTickBase + (performance.now() - this.baseTime) / 1000 * TICK_RATE; }
+  /** A server tick expressed as a local *sim* tick: "this many ticks from now" — robust to a paused or slow sim. */
+  toLocalTick(serverTick) { return this.world ? this.world.tick + Math.round(serverTick - this.serverTickNow()) : 0; }
   _ping() { this.socket.emit(MSG.PING, { t: performance.now() }); }
 
   /** Called every frame; sends a hint at HINT_HZ. */

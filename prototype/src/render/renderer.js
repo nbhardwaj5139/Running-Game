@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, LANES, TRACK_W, CHUNK_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt } from '../core/chunks.js';
+import { LANE_W, LANES, TRACK_W, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
@@ -22,6 +22,8 @@ import { makeGroundMaterial, GROUND_W, MAX_LIGHTS } from './ground.js';
 import { makeGrass, makeFlowers } from './vegetation.js';
 import { makeParticles, makeTrail, makeTrain, makeShockRing } from './fx.js';
 import { buildScenery } from './scenery.js';
+import { makeDeer } from './deer.js';
+import { makeLitter, makeSpray } from './litter.js';
 
 /** Golden hour ↔ night, one full cycle every 3.6 km (starts at golden hour). */
 export const nightAt = (distance) => 0.5 - 0.5 * Math.cos((2 * Math.PI * distance) / 3600);
@@ -137,7 +139,7 @@ export class Renderer {
 
     // sky & horizon (scene space, static)
     this.sky = makeSky(); s.add(this.sky.group);
-    const base = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), new THREE.MeshBasicMaterial({ color: 0x141020 })); base.rotation.x = -Math.PI / 2; base.position.y = -0.06; s.add(base); this.base = base;
+    const base = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), new THREE.MeshBasicMaterial({ color: 0x141020 })); base.rotation.x = -Math.PI / 2; base.position.y = -0.06; base.visible = false; s.add(base); this.base = base;   // the sky's horizon band stands in for distant ground
 
     // the track spline maps track space (x across, h up, s along) to world space; everything is placed through it
     this.track = new Track(world.seed);
@@ -242,6 +244,16 @@ export class Renderer {
     for (const k of KAIJU) this.pool(`wave:${k.id}`, waveGeo, new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(...k.color).multiplyScalar(1.15), transparent: true, opacity: 0.85 }));
     this.kaijuRigs = {}; for (const k of KAIJU) { const r = kaijuRig(k); this.stage.add(r.group); this.kaijuRigs[k.id] = r; }
     this.kaijuState = { id: null, y: -42, throwT: 9, stompT: 0, side: 1 };
+    // shrine stairs: torii gates spanning the road on the climb, the shrine at the top
+    const red = [0.78, 0.19, 0.17], black = [0.16, 0.14, 0.13];
+    this.pool('toriiGate', merge([paint(cyl(0.32, 0.38, 7.2), red, { p: [-7.4, 3.6, 0] }), paint(cyl(0.32, 0.38, 7.2), red, { p: [7.4, 3.6, 0] }), paint(box(17.5, 0.5, 0.6), black, { p: [0, 7.45, 0] }), paint(box(15.4, 0.36, 0.45), red, { p: [0, 6.4, 0] })]), PAINT_REF);
+    this.pool('shrine', merge([
+      paint(box(9, 0.6, 7), [0.55, 0.52, 0.48], { p: [0, 0.3, 0] }), paint(box(7.6, 3.2, 5.6), [0.93, 0.9, 0.84], { p: [0, 2.2, 0] }),
+      ...[-3.4, -1.1, 1.1, 3.4].map(x => paint(cyl(0.18, 0.18, 3.4), red, { p: [x, 2.3, 2.9] })),
+      paint(box(9.6, 0.35, 7.6), black, { p: [0, 4.05, 0] }), paint(cone(6.8, 2.6, 4), [0.25, 0.28, 0.32], { p: [0, 5.5, 0], r: [0, Math.PI / 4, 0], s: [1.15, 1, 0.9] }),
+      paint(box(1.8, 0.5, 0.6), [0.9, 0.75, 0.3], { p: [0, 4.4, 3.2] }), paint(box(2.2, 0.3, 1.4), [0.55, 0.52, 0.48], { p: [0, 0.75, 4.2] }),
+    ]), PAINT_REF);
+    this.deer = makeDeer(this.root); this.litter = makeLitter(this.root); this.spray = makeSpray(this.scene);
   }
 
   /** Bend a floor mesh along the track: vertices go to world space, aTrack keeps (x, s) for the surface patterns. */
@@ -263,10 +275,11 @@ export class Renderer {
 
   // ---------------------------------------------------------------- chunks
   _attachChunk(c) {
-    const biome = c.biome, season = c.season; const rng = mulberry32(mixSeed(this.world.seed ^ 0x5eed, c.index));
+    const biome = c.biome, pv = provinceOf(c.index); const rng = mulberry32(mixSeed(this.world.seed ^ 0x5eed, c.index));
+    const season = pv.snow ? 3 : c.season;                                    // Hokkaido is always under snow
     const night = nightAt(this.world.distance);
     const floor = this.floorPool.take(); this._bendFloor(floor, c.z0);
-    const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = snowAt(c.index);
+    const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = pv.snow ? 0.9 : snowAt(c.index);
     const v = { floor, meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
 
@@ -305,6 +318,12 @@ export class Renderer {
     this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light });
     this.grass.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x9a55, c.index)), season, biome);
     this.flowers.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xf10e, c.index)), season, biome);
+    this.litter.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x1eaf, c.index)), season);
+    if (pv.deer) this.deer.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xdee4, c.index)), 5);
+    // shrine stairs: a torii tunnel up the climb, the shrine on the flat top
+    const stairs = shrineClimbPitch(c.index);
+    if (stairs !== null && stairs > 0) for (let i = 0; i < 6; i++) { const g = this.pools.toriiGate.take(); g.position.set(0, 0, c.z0 + 3 + i * 6); placeMesh(g); v.meshes.push(g); light(0, c.z0 + 3 + i * 6, 6.4, 0.5, [1, 0.5, 0.4]); }
+    if (shrineTopAt(c.index)) { const sh = this.pools.shrine.take(); sh.position.set(-15.5, 0, c.z0 + 20); sh.rotation.set(0, Math.PI / 2, 0); placeMesh(sh); v.meshes.push(sh); light(-9, c.z0 + 20, 3, 0.8, [1, 0.8, 0.5]); }
     for (let i = 0; i < MAX_LIGHTS; i++) { const L = v.lights[i]; if (L) { u.uLight.value[i].set(L.x, L.z, L.y, L.i); u.uLightCol.value[i].setRGB(...L.col); } }
     u.uLightN.value = v.lights.length;
     this.views.set(c.index, v);
@@ -316,7 +335,7 @@ export class Renderer {
     this.floorPool.give(v.floor);
     for (const m of v.meshes) this.pools[m.userData.pool]?.give(m);
     for (const coin of v.coins) { this.coinPool.give(coin.i); const k = this.coins.indexOf(coin); if (k >= 0) this.coins.splice(k, 1); }
-    this.scenery.release(c.index); this.grass.release(c.index); this.flowers.release(c.index);
+    this.scenery.release(c.index); this.grass.release(c.index); this.flowers.release(c.index); this.litter.release(c.index); this.deer.release(c.index);
     this.views.delete(c.index);
     this.coinPool.flush();
   }
@@ -352,7 +371,7 @@ export class Renderer {
   render(dt) {
     const w = this.world; this.time += dt;
     const idx = Math.floor(w.distance / CHUNK_LEN); const biome = biomeOf(idx), season = seasonOf(idx);
-    const seasonT = (idx % SEASON_LEN) / SEASON_LEN;
+    const seasonT = (idx % SEASON_LEN) / SEASON_LEN; const pv = provinceOf(idx); const vSeason = pv.snow ? 3 : season;
     const night = nightAt(w.distance);
     const dread = 1 - Math.max(0, w.storm) / W.STORM_MAX;
     this.track.ensure(idx + 8);
@@ -366,10 +385,15 @@ export class Renderer {
     for (const v of this.views.values()) { const u = v.floor.material.uniforms; u.uTime.value = this.time; u.uNight.value = night; u.uWet.value = wet; }
     const windStrength = (season === 2 ? 1.3 : season === 3 ? 0.9 : 0.7) + dread * 1.2;
     this.wind.set(0.35 * Math.sin(this.time * 0.13), 0, 1).normalize().multiplyScalar(windStrength);
-    this.sky.update(dt, { night, season, seasonT, time: this.time, wind: this.wind, biome, dread }, this.camera);
-    this.grass.update(dt, this.wind, night, season); this.flowers.update(dt, this.wind, night, season);
-    this.scenery.update(dt, { night, time: this.time, season, biome, dt });
-    this.particles.update(dt, { season, biome, night, scroll: w.speed, wind: this.wind, dread });
+    this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread, water: pv.water, fujiScale: pv.fuji }, this.camera);
+    this.grass.update(dt, this.wind, night, vSeason); this.flowers.update(dt, this.wind, night, vSeason);
+    this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt });
+    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread });
+    const active = w.runners.filter(r => !r.disabled);
+    this.deer.update(dt, w.distance);
+    this.litter.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y })), this.wind, w.speed);
+    const sprayKind = vSeason === 3 ? 'snow' : wet > 0.3 ? 'rain' : biome === 3 ? 'sand' : biome === 0 ? 'dust' : null;
+    this.spray.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y, moving: w.alive && w.speed > 1 })), sprayKind, w.speed);
     this.shock.update(dt);
 
     // ---- runners
@@ -377,6 +401,7 @@ export class Renderer {
     let leanSum = 0;
     for (const R of this.rigs) {
       const p = w.runners[R.track]; const g = R.rig.group;
+      if (p.disabled) { g.visible = false; R.shadow.visible = false; continue; } R.shadow.visible = true;
       const px = roadX(p.xLane);
       const slide = p.action === 'slide', air = !p.grounded;
       const laneVel = R.prevX === null ? 0 : (px - R.prevX) / Math.max(dt, 1e-3); R.prevX = px;

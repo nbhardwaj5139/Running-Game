@@ -8,6 +8,8 @@ Docs: [`docs/KITSUNE_GDD.md`](docs/KITSUNE_GDD.md) (the current design), [`docs/
 
 ## What's in the prototype
 - **Sim** (`prototype/src/core/`): one six-lane road made of two solvable home tracks; kaiju encounters before every season change (Daidarabotchi, Umibōzu, Gashadokuro, Yuki-Oni throw boulders, boats, bones and ice onto the road, plus full-width waves to jump); obstacles stalk / arch / drusen / gap / wide / roller; torii walls; powers (Kitsune Shield, Tanuki Magnet, Wind Kami Dash, Daruma ×2, Sakura Heal); a shared typhoon margin; falls respawn; runner-vs-runner barging; an autopilot companion; deterministic replay.
+- **The journey**: Kyoto (shrine stairs through a torii tunnel to a hilltop shrine) → Osaka → Nara (deer that roam and bow) → Shōnan → Hakone (Fuji up close) → Tokyo → Hokkaido (always under snow) → Okinawa (turquoise sea), on a road that curves, climbs and drops.
+- **Ground that reacts**: leaf and petal carpets scatter as you run through them; snow, rain, sand and dust spray at your feet.
 - **Characters**: Kitsune, Tanuki, Shiba, Maneki-neko, Kappa, Tengu, Moon Rabbit — pick one for each road on the start screen (`?p1=`, `?p2=`).
 - **Render** (`prototype/src/render/`): 65 procedural Japanese obstacle variants, fox and tanuki rigs, scenery for mountain / city / suburb / coast across four seasons, a wet-asphalt/flagstone/sand ground shader with puddle reflections and snow, a Shinkai-style sky (cumulus, comet, god rays, lens flare), instanced wind-swayed grass and flowers, seasonal particles (petals, tumbling leaves, snow, fireflies, rain, wind ribbons), bloom + anime grade.
 - **Tests** (`tests/`): 240,000-track solvability sweep, replay determinism, powers, barging, autopilot.

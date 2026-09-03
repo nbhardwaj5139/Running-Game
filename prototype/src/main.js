@@ -1,7 +1,7 @@
 // Bootstrap: sim + renderer + input + HUD + mode select (1P with a spirit companion / 2P shared keyboard).
 import { World, W } from './core/world.js';
 import { normalizeSeed } from './core/rng.js';
-import { CHUNK_LEN, biomeOf, seasonOf, DIFFICULTY } from './core/chunks.js';
+import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 import { CHARACTERS, characterById } from './render/characters.js';
@@ -51,24 +51,24 @@ setDifficulty(difficulty);
 
 function newWorld() {
   world = new World(seed, {
-    reducedMotion, difficulty, autopilot: mode === 1 ? [0] : [],
+    reducedMotion, difficulty, solo: mode === 1, autopilot: [],
     onEvent: (e) => {
       renderer?.onEvent(e);
       if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
       if (e.type === 'power') { hud.power.textContent = POWER_NAMES[e.kind] || e.kind; hud.power.classList.add('on'); powerT = 1.4; }
-      if (e.type === 'section') showSection(e.season, e.biome, true);
+      if (e.type === 'section') showSection(e.season, e.biome, true, e.province);
       if (e.type === 'kaiju' && e.kaiju) { hud.toastJp.textContent = e.kaiju.jp; hud.toastEn.textContent = `KAIJU — ${e.kaiju.en}`; hud.toast.classList.add('on'); toastT = 3; hud.power.textContent = '⚠ ' + e.kaiju.en.split(',')[0].toUpperCase() + ' IS THROWING'; hud.power.classList.add('on'); powerT = 2.5; }
       if (e.type === 'death') onDeath(e);
     },
   });
   if (renderer) renderer.reset(world);
-  showSection(seasonOf(0), biomeOf(0), false);
+  showSection(seasonOf(0), biomeOf(0), false, provinceOf(0));
 }
 
-function showSection(season, biome, toast) {
-  const s = SEASON_LABEL[season], b = BIOME_LABEL[biome];
-  hud.secJp.textContent = s.jp; hud.secEn.textContent = `${s.en} · ${b.en}`;
-  if (toast) { hud.toastJp.textContent = `${s.jp}　${b.jp}`; hud.toastEn.textContent = `${s.en} — ${b.en}`; hud.toast.classList.add('on'); toastT = 2.6; }
+function showSection(season, biome, toast, province) {
+  const s = SEASON_LABEL[season], b = BIOME_LABEL[biome]; const pv = province || provinceOf(world.chunkIndex);
+  hud.secJp.textContent = `${s.jp}　${pv.jp}`; hud.secEn.textContent = `${s.en} · ${pv.en} · ${b.en}`;
+  if (toast) { hud.toastJp.textContent = `${pv.jp}`; hud.toastEn.textContent = `${pv.en} — ${s.en} · ${b.en}`; hud.toast.classList.add('on'); toastT = 2.8; }
 }
 
 function onDeath(e) {
@@ -99,8 +99,8 @@ document.getElementById('quit').addEventListener('click', pause);
 function start(m) {
   if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
   if (!mode) return;                          // the start screen waits for a mode
-  if (!world || !world.alive || world.opts.autopilot.length !== (mode === 1 ? 1 : 0) || world.cfg.id !== difficulty) newWorld();
-  hud.who[0].textContent = mode === 1 ? 'spirit companion' : 'player 2 · WASD';
+  if (!world || !world.alive || !!world.opts.solo !== (mode === 1) || world.cfg.id !== difficulty) newWorld();
+  hud.who[0].textContent = 'player 2 · WASD'; hud.runners[0].style.display = mode === 1 ? 'none' : '';
   hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
   running = true; hud.msg.classList.add('hidden'); hud.quit.style.display = 'block'; last = performance.now(); acc = 0;
 }

@@ -110,10 +110,10 @@ export function makeSky() {
     rays.position.copy(sunSprite.position); rays.lookAt(0, 0, 0); rays.rotation.z += dt * 0.02;
     rays.children.forEach((p, i) => { p.children[0].material.opacity = sunVis * (0.16 + 0.12 * Math.sin(state.time * 0.3 + i)) * (1 - state.dread * 0.7); });
     fuji.material.color.copy(th.skyMid).lerp(th.horizon, 0.25).multiplyScalar(0.75); snow.material.color.copy(th.cloud).lerp(th.horizon, 0.3);
-    snow.scale.setScalar(state.season === 3 ? 1.6 : 1);
     ridges.forEach((r, i) => r.material.color.copy(th.fog).lerp(th.skyMid, 0.3 + i * 0.15).multiplyScalar(0.55 + i * 0.12));
     tm.color.set(0xd6512b).lerp(th.fog, 0.5); beacon.material.color.setRGB(4, 0.4, 0.3).multiplyScalar(Math.round(Math.sin(state.time * 2) * 0.5 + 0.5));
-    sea.visible = state.biome === 3; sea.material.color.copy(th.water);
+    sea.visible = state.biome === 3; sea.material.color.copy(th.water); if (state.water) sea.material.color.setRGB(...state.water);
+    const fs = state.fujiScale ?? 1; fuji.scale.setScalar(fs); fuji.position.y = 41 * fs; snow.position.y = 70.7 * fs; snow.scale.setScalar((state.season === 3 ? 1.6 : 1) * fs); fuji.visible = snow.visible = fs > 0.05;
     // lens flare along the sun → screen-centre line, attached to the camera
     if (camera) {
       if (flareGroup.parent !== camera) camera.add(flareGroup);

@@ -1,6 +1,6 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, CHUNK_LEN, DIFFICULTY } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, provinceOf, CHUNK_LEN, DIFFICULTY } from './chunks.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
 
@@ -31,6 +31,7 @@ export class World {
     this.seed = seed; this.opts = opts;
     this.cfg = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.runners = [new Player(0), new Player(1)];
+    if (opts.solo) this.runners[0].disabled = true;      // single player: the fox runs alone
     this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, cfg: this.cfg, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
     this.distance = 0; this.speed = speedAt(0, this.cfg);
     this.storm = W.STORM_START;
@@ -66,12 +67,12 @@ export class World {
     this.distance += this.speed * dt;
     this.score += (this.distance - prevZ) * W.SCORE_PER_M * (this.x2T > 0 ? 2 : 1);
     this.x2T = Math.max(0, this.x2T - dt);
-    for (const r of this.runners) { r.z = this.distance; if (this._isAuto(r)) autopilot(this, r); r.step(dt); }
-    this._bump(dt);
+    for (const r of this.runners) { r.z = this.distance; if (r.disabled) continue; if (this._isAuto(r)) autopilot(this, r); r.step(dt); }
+    if (!this.runners.some(r => r.disabled)) this._bump(dt);
 
     // --- sections ---
     const idx = this.chunkIndex; const biome = biomeOf(idx), season = seasonOf(idx);
-    if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, index: idx }); }
+    if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, province: provinceOf(idx), index: idx }); }
     const kj = kaijuOf(idx);
     if ((kj?.id ?? null) !== (this.kaiju?.id ?? null)) { this.kaiju = kj; this._emit({ type: 'kaiju', kaiju: kj, index: idx }); }
 
@@ -80,6 +81,7 @@ export class World {
 
     // --- collisions per runner over its own track ---
     for (const p of this.runners) {
+      if (p.disabled) continue;
       for (const c of this.pool.live) {
         if (c.z0 > p.z + 4 || c.z0 + c.length < prevZ - 4) continue;
         for (const cell of c.cells) {
@@ -121,7 +123,7 @@ export class World {
 
     // --- the typhoon ---
     const pressure = this.cfg.drift * Math.min(1, this.distance / 2500);
-    const clean = this.runners.every(r => r.stumbleT === 0);
+    const clean = this.runners.every(r => r.disabled || r.stumbleT === 0);
     this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - pressure * dt);
     if (this.storm <= 0) this._die('storm');
   }

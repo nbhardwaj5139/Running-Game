@@ -25,6 +25,25 @@ export const SEASON_LEN = 14;                        // chunks per season (504 m
 export const BIOMES = ['mountain', 'city', 'suburb', 'coast'];
 export const SEASONS = ['spring', 'summer', 'fall', 'winter'];
 export const biomeOf = (index) => Math.floor(Math.max(0, index) / BIOME_LEN) % BIOMES.length;
+/** The journey: one province per biome section, cycling. Province biomes line up with biomeOf. */
+export const PROVINCES = [
+  { id: 'kyoto',    jp: '京都', en: 'Kyoto',    biome: 0, shrine: true,  fuji: 1.0, water: null,     snow: false, deer: false },
+  { id: 'osaka',    jp: '大阪', en: 'Osaka',    biome: 1, shrine: false, fuji: 0.6, water: null,     snow: false, deer: false },
+  { id: 'nara',     jp: '奈良', en: 'Nara',     biome: 2, shrine: false, fuji: 0.8, water: null,     snow: false, deer: true },
+  { id: 'shonan',   jp: '湘南', en: 'Shōnan',   biome: 3, shrine: false, fuji: 1.6, water: [0.18, 0.55, 0.75], snow: false, deer: false },
+  { id: 'hakone',   jp: '箱根', en: 'Hakone',   biome: 0, shrine: true,  fuji: 2.4, water: null,     snow: false, deer: false },
+  { id: 'tokyo',    jp: '東京', en: 'Tokyo',    biome: 1, shrine: false, fuji: 1.0, water: null,     snow: false, deer: false },
+  { id: 'hokkaido', jp: '北海道', en: 'Hokkaido', biome: 2, shrine: false, fuji: 0.0, water: null,     snow: true,  deer: false },
+  { id: 'okinawa',  jp: '沖縄', en: 'Okinawa',  biome: 3, shrine: false, fuji: 0.0, water: [0.25, 0.85, 0.85], snow: false, deer: false },
+];
+export const provinceOf = (index) => PROVINCES[Math.floor(Math.max(0, index) / BIOME_LEN) % PROVINCES.length];
+/** Shrine climb shape within a Kyoto/Hakone section: chunk k of the section → absolute pitch target (deg) or null. */
+export function shrineClimbPitch(index) {
+  const pv = provinceOf(index); if (!pv.shrine) return null;
+  const k = index % BIOME_LEN;
+  return [null, 13, 13, 0, -13, -13, 0, null][k] ?? null;
+}
+export const shrineTopAt = (index) => provinceOf(index).shrine && index % BIOME_LEN === 3;
 export const seasonOf = (index) => Math.floor(Math.max(0, index) / SEASON_LEN) % SEASONS.length;
 /** 0..1 progress through the current season section (for blends at the boundary). */
 export const seasonBlend = (index) => (Math.max(0, index) % SEASON_LEN) / SEASON_LEN;

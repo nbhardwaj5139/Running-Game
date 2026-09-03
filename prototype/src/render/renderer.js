@@ -254,6 +254,16 @@ export class Renderer {
       paint(box(1.8, 0.5, 0.6), [0.9, 0.75, 0.3], { p: [0, 4.4, 3.2] }), paint(box(2.2, 0.3, 1.4), [0.55, 0.52, 0.48], { p: [0, 0.75, 4.2] }),
     ]), PAINT_REF);
     this.deer = makeDeer(this.root); this.litter = makeLitter(this.root); this.spray = makeSpray(this.scene);
+    // set pieces: the collapsing bridge (railings, pillars, planks) and the avalanche wall
+    const wood = [0.42, 0.3, 0.2], rope = [0.55, 0.45, 0.32];
+    this.pool('rail', merge([paint(box(0.18, 1.1, CHUNK_LEN), wood, { p: [0, 0.55, 0] }), paint(box(0.12, 0.1, CHUNK_LEN), rope, { p: [0, 1.1, 0] }), ...[0, 1, 2, 3, 4, 5].map(i => paint(box(0.25, 1.2, 0.25), wood, { p: [0, 0.6, -CHUNK_LEN / 2 + 3 + i * 6] }))]), PAINT_REF);
+    this.pool('pillar', merge([paint(box(1.2, 40, 1.2), [0.3, 0.28, 0.26], { p: [-5.5, -20, 0] }), paint(box(1.2, 40, 1.2), [0.3, 0.28, 0.26], { p: [5.5, -20, 0] }), paint(box(14, 0.8, 1.4), wood, { p: [0, -0.5, 0] })]), PAINT_REF);
+    this.pool('plank', paint(box(TRACK_W * 2 + 0.8, 0.22, 1.8), wood, { p: [0, -0.11, 0] }), PAINT_REF);
+    const lumps = []; for (let i = 0; i < 26; i++) { const x = (i / 25 - 0.5) * 26, r = 2.2 + ((i * 7) % 5) * 0.45; lumps.push(paint(sph(r, 8), [0.96, 0.97, 1.0], { p: [x, r * 0.7 + ((i * 3) % 4) * 0.6, ((i * 5) % 3) * 1.4 - 1.4] })); }
+    for (let i = 0; i < 10; i++) lumps.push(paint(sph(1.4 + (i % 3) * 0.5, 7), [0.9, 0.93, 1.0], { p: [(i / 9 - 0.5) * 22, 5.5 + (i % 2) * 1.2, 1.5] }));
+    this.avalanche = new THREE.Mesh(merge(lumps), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })); this.avalanche.visible = false; this.root.add(this.avalanche);
+    this.avalancheS = null; this.thunderT = 0;
+    this.snowballs = new InstancePool(this.root, sph(1, 9), new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.95 }), 24); this.balls = [];
   }
 
   /** Bend a floor mesh along the track: vertices go to world space, aTrack keeps (x, s) for the surface patterns. */
@@ -323,6 +333,11 @@ export class Renderer {
     // shrine stairs: a torii tunnel up the climb, the shrine on the flat top
     const stairs = shrineClimbPitch(c.index);
     if (stairs !== null && stairs > 0) for (let i = 0; i < 6; i++) { const g = this.pools.toriiGate.take(); g.position.set(0, 0, c.z0 + 3 + i * 6); placeMesh(g); v.meshes.push(g); light(0, c.z0 + 3 + i * 6, 6.4, 0.5, [1, 0.5, 0.4]); }
+    if (c.setpiece === 'bridge') {
+      for (const x of [-7.3, 7.3]) { const r = this.pools.rail.take(); r.position.set(x, 0, c.z0 + CHUNK_LEN / 2); placeMesh(r); v.meshes.push(r); }
+      for (const z of [c.z0 + 6, c.z0 + 30]) { const pl = this.pools.pillar.take(); pl.position.set(0, 0, z); placeMesh(pl); v.meshes.push(pl); }
+      for (let i = 0; i < CHUNK_LEN / 2; i++) { const pk = this.pools.plank.take(); pk.position.set(0, 0.06, c.z0 + 1 + i * 2); pk.rotation.set(0, 0, 0); placeMesh(pk); v.meshes.push(pk); v.planks = v.planks || []; v.planks.push({ m: pk, s: c.z0 + 1 + i * 2, fall: 0, x: (rng() - 0.5) * 0.4 }); }
+    }
     if (shrineTopAt(c.index)) { const sh = this.pools.shrine.take(); sh.position.set(-15.5, 0, c.z0 + 20); sh.rotation.set(0, Math.PI / 2, 0); placeMesh(sh); v.meshes.push(sh); light(-9, c.z0 + 20, 3, 0.8, [1, 0.8, 0.5]); }
     for (let i = 0; i < MAX_LIGHTS; i++) { const L = v.lights[i]; if (L) { u.uLight.value[i].set(L.x, L.z, L.y, L.i); u.uLightCol.value[i].setRGB(...L.col); } }
     u.uLightN.value = v.lights.length;
@@ -334,6 +349,7 @@ export class Renderer {
     const v = this.views.get(c.index); if (!v) return;
     this.floorPool.give(v.floor);
     for (const m of v.meshes) this.pools[m.userData.pool]?.give(m);
+    for (const t of v.thrown) if (t.plank) { this.pools.plank.give(t.plank); t.plank = null; }
     for (const coin of v.coins) { this.coinPool.give(coin.i); const k = this.coins.indexOf(coin); if (k >= 0) this.coins.splice(k, 1); }
     this.scenery.release(c.index); this.grass.release(c.index); this.flowers.release(c.index); this.litter.release(c.index); this.deer.release(c.index);
     this.views.delete(c.index);
@@ -374,25 +390,31 @@ export class Renderer {
     const seasonT = (idx % SEASON_LEN) / SEASON_LEN; const pv = provinceOf(idx); const vSeason = pv.snow ? 3 : season;
     const night = nightAt(w.distance);
     const dread = 1 - Math.max(0, w.storm) / W.STORM_MAX;
+    const wx = w.weather || { fog: 0, rain: 0, gust: 0, id: 'clear' };
     this.track.ensure(idx + 8);
 
     // ---- theme → lights, fog, ground
     const th = getTheme(season, night, biome);
     this.sun.color.copy(th.sun); this.sun.intensity = th.sunIntensity; this.sun.position.set(60, 46 - 30 * night, 140);
     this.hemi.color.copy(th.hemiSky); this.hemi.groundColor.copy(th.hemiGround); this.hemi.intensity = th.hemiIntensity;
-    this.ambient.intensity = th.ambient; this.scene.fog.color.copy(th.fog); this.base.material.color.copy(th.fog).multiplyScalar(0.55);
-    const wet = clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0);
+    this.ambient.intensity = th.ambient; this.scene.fog.color.copy(th.fog).lerp(new THREE.Color(0.55, 0.58, 0.64), Math.min(1, wx.fog * 0.8 + wx.rain * 0.5)); this.base.material.color.copy(th.fog).multiplyScalar(0.55);
+    const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain);
+    // weather → visibility, sky mood, lightning
+    const fogK = wx.fog + dread * 0.3;
+    this.scene.fog.near += ((40 - 24 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((260 - 165 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
+    if (wx.id === 'thunder' && Math.random() < dt * 0.35) this.thunderT = 1;
+    this.thunderT *= Math.exp(-dt * 10);
     for (const v of this.views.values()) { const u = v.floor.material.uniforms; u.uTime.value = this.time; u.uNight.value = night; u.uWet.value = wet; }
-    const windStrength = (season === 2 ? 1.3 : season === 3 ? 0.9 : 0.7) + dread * 1.2;
+    const windStrength = (season === 2 ? 1.3 : season === 3 ? 0.9 : 0.7) + dread * 1.2 + (wx.gust ? 0.6 : 0) + (w.gust ? 1.8 : 0);
     this.wind.set(0.35 * Math.sin(this.time * 0.13), 0, 1).normalize().multiplyScalar(windStrength);
-    this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread, water: pv.water, fujiScale: pv.fuji }, this.camera);
+    this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread: Math.min(1, dread + wx.rain * 0.5 + wx.fog * 0.3), water: pv.water, fujiScale: pv.fuji }, this.camera);
     this.grass.update(dt, this.wind, night, vSeason); this.flowers.update(dt, this.wind, night, vSeason);
     this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt });
-    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread });
+    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread, wx.rain * 0.85, wx.id === 'blizzard' ? 0.5 : 0) });
     const active = w.runners.filter(r => !r.disabled);
     this.deer.update(dt, w.distance);
     this.litter.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y })), this.wind, w.speed);
-    const sprayKind = vSeason === 3 ? 'snow' : wet > 0.3 ? 'rain' : biome === 3 ? 'sand' : biome === 0 ? 'dust' : null;
+    const sprayKind = w.setpiece === 'avalanche' || vSeason === 3 ? 'snow' : wet > 0.3 ? 'rain' : biome === 3 ? 'sand' : biome === 0 ? 'dust' : null;
     this.spray.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y, moving: w.alive && w.speed > 1 })), sprayKind, w.speed);
     this.shock.update(dt);
 
@@ -446,7 +468,7 @@ export class Renderer {
     this.storm.position.y = 34 - dread * 24 + (w.alive ? 0 : -9);
     this.storm.material.uniforms.uTime.value = this.time;
     if (dread > 0.45 && Math.random() < dt * (0.12 + dread * 0.5)) this.flash = 1;
-    this.flash *= Math.exp(-dt * 12); this.storm.material.uniforms.uFlash.value = this.flash; this.flashLight.intensity = this.flash * 2.5;
+    this.flash = Math.max(this.flash * Math.exp(-dt * 12), this.thunderT); this.storm.material.uniforms.uFlash.value = this.flash; this.flashLight.intensity = this.flash * 2.5;
 
     // ---- coins, powers, rollers
     const spin = this.time * 3;
@@ -475,11 +497,35 @@ export class Renderer {
       if (t.landed) continue;
       const lead = w.speed * 1.5 + 8, dz = t.cell.z - w.distance;
       if (dz > lead) continue;
-      if (!t.start) { t.start = { x: K.side * 2, y: 30, z: w.distance + 100 }; K.throwT = 0; t.m.visible = true; }
+      if (!t.start) { t.start = t.cell.by === 'avalanche' ? { x: (t.x + (Math.random() - 0.5) * 8), y: 9, z: w.distance - 16 } : { x: K.side * 2, y: 30, z: w.distance + 100 }; if (t.cell.by !== 'avalanche' && t.cell.by !== 'bridge') K.throwT = 0; t.m.visible = true; }
       const p = clamp01(1 - (dz - 4) / (lead - 4));
+      if (t.cell.by === 'bridge') {
+        // the deck gives way: the plank under this gap drops away just before the runners arrive
+        t.m.visible = p >= 0.55; if (!t.plank) { t.plank = this.pools.plank.take(); t.plank.scale.set(LANE_W / (TRACK_W * 2 + 0.8), 1, 1.6); }
+        const f = clamp01((p - 0.35) / 0.65); t.plank.position.set(t.x, 0.06 - f * f * 24, t.cell.z + 0.6); t.plank.rotation.set(f * 1.8, 0, f * 0.6); placeMesh(t.plank); t.plank.visible = f < 1;
+        if (p >= 1) { t.landed = true; this.pools.plank.give(t.plank); t.plank = null; }
+        continue;
+      }
       if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); }
       else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.set(p * 6 * (t.cell.v % 2 ? 1 : -1), 0, 0); placeMesh(t.m); }
       if (p >= 1) { t.landed = true; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); t.m.rotation.set(0, 0, 0); placeMesh(t.m); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); }
+    }
+    // bridge deck crumbling behind the runners; the avalanche wall chasing them
+    for (const v of this.views.values()) if (v.planks) for (const pk of v.planks) {
+      if (pk.fall === 0 && pk.s < w.distance - 3) pk.fall = 0.001;
+      if (pk.fall > 0 && pk.fall < 1) { pk.fall = Math.min(1, pk.fall + dt * 0.9); const f = pk.fall; pk.m.position.set(pk.x * 3, 0.06 - f * f * 26, pk.s); pk.m.rotation.set(f * 1.2 * (pk.x > 0 ? 1 : -1), 0, f * 0.5); placeMesh(pk.m); pk.m.visible = f < 1; }
+    }
+    if (w.setpiece === 'avalanche') {
+      this.avalancheS = this.avalancheS ?? w.distance - 40; this.avalancheS += (w.distance - 24 - this.avalancheS) * Math.min(1, dt * 0.8);
+      this.avalanche.visible = true; this.avalanche.position.set(0, -0.5 + Math.sin(this.time * 7) * 0.3, this.avalancheS); this.avalanche.rotation.set(Math.sin(this.time * 3) * 0.04, 0, 0); placeMesh(this.avalanche);
+      // snow boulders overtake on both verges and tumble past
+      if (!this.balls.length) for (let i = 0; i < 24; i++) { const side = i % 2 ? 1 : -1; const b = { x: side * (8.5 + Math.random() * 6), s: w.distance - 30 + Math.random() * 60, r: 0.9 + Math.random() * 1.6, v: 6 + Math.random() * 10, rot: Math.random() * 6, i: -1 }; b.i = this.snowballs.take(compose(b.x, b.r, b.s, b.r, b.r, b.r, b.rot)); this.balls.push(b); }
+      for (const b of this.balls) { b.s += (w.speed + b.v) * dt; b.rot += dt * b.v / b.r; if (b.s > w.distance + 55) { b.s = w.distance - 30 - Math.random() * 20; b.x = (b.x < 0 ? -1 : 1) * (8.5 + Math.random() * 6); } this.snowballs.set(b.i, compose(b.x, b.r * 0.9 + Math.abs(Math.sin(b.rot * 0.7)) * 0.3, b.s, b.r, b.r, b.r, b.rot)); }
+      this.snowballs.flush();
+    } else if (this.avalanche.visible) {
+      this.avalancheS -= 25 * dt; this.avalanche.position.set(0, -0.5, this.avalancheS); placeMesh(this.avalanche);
+      for (const b of this.balls) this.snowballs.give(b.i); this.balls.length = 0; this.snowballs.flush();
+      if (this.avalancheS < w.distance - 90) { this.avalanche.visible = false; this.avalancheS = null; }
     }
     // shinkansen on the city viaduct
     if (this.train.visible) { this.trainS -= 62 * dt; this.train.position.set(16, 6.6, this.trainS); this.train.rotation.set(0, 0, 0); placeMesh(this.train); if (this.trainS < w.distance - 70) this.train.visible = false; }

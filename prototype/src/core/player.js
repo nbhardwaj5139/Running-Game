@@ -46,6 +46,7 @@ export class Player {
     this.shield = false; this.magnetT = 0; this.dashT = 0; this.iT = 0;
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
+    this.laneTime = P.LANE_T; this.stumbleScale = 1;   // set by the world from the weather
   }
 
   /** evt: {kind:'jump'|'slide'|'lane'|'jumpRelease', dir?} — stamped with the current tick. */
@@ -73,7 +74,7 @@ export class Player {
       if (target !== this.lane) { this.laneFromX = this.xLane; this.lane = target; this.laneT = 0; }
       this.buffered.lane = null;
     } else if (bl && !this._fresh(bl)) this.buffered.lane = null;
-    this.laneT = Math.min(1, this.laneT + dt / P.LANE_T);
+    this.laneT = Math.min(1, this.laneT + dt / this.laneTime);
     this.xLane = this.laneFromX + (this.lane - this.laneFromX) * easeOutCubic(this.laneT);
 
     // --- jump ---
@@ -111,7 +112,7 @@ export class Player {
     this.iT = Math.max(0, this.iT - dt);
   }
 
-  stumble() { this.stumbleT = P.STUMBLE_T; if (this.action === 'slide') this.action = 'run'; }
+  stumble() { this.stumbleT = P.STUMBLE_T * this.stumbleScale; if (this.action === 'slide') this.action = 'run'; }
 
   /** After a fall: back on the road in the same lane, briefly untouchable. */
   respawn() { this.y = 0; this.vy = 0; this.grounded = true; this.action = 'run'; this.iT = P.INVULN_T; this.stumbleT = P.STUMBLE_T; }

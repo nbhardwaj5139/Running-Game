@@ -75,10 +75,13 @@ The last two chunks of every season (72 m before the change) belong to a **kaiju
 | Autumn | **Gashadokuro**, the starving skeleton | bone spikes (lane), skulls (jump), ribcages (two lanes) |
 | Winter | **Yuki-Oni**, the snow ogre | ice blocks (lane), snowballs (jump), frost waves |
 
-### 1.8 The typhoon
+### 1.8 Weather and set pieces
+Each biome section draws a **weather** state from its season (seeded): clear · rain (slick: lane changes 15 % slower, puddle reflections) · thunderstorm (rain, lightning, gusts, +30 % typhoon pressure) · high wind and blizzard (**gusts** every 6–9 s: a telegraphed arrow, then every runner is shoved one lane downwind) · fog (visibility drops to ~90 m, rows appear late) · snow (lane changes 30 % slower, stumbles last longer). Two scripted **set pieces** reuse the kaiju "thrower" grammar so they stay fair: the **collapsing bridge** (coast and mountain sections: a wooden deck over the water whose planks drop away just before you reach them and crumble behind you) and the **avalanche** (winter descents from the shrine: a snow wall chases the pair, boulders overtake on the verges and crash down on the road, typhoon pressure doubles until the bottom).
+
+### 1.9 The typhoon
 `storm` starts at 30 m of margin (max 34). Clean running recovers 0.6 m/s; pressure drains up to 0.45 m/s by 2.5 km; a stumble costs 7 m, a stalk 11 m, a fall 14 m and a respawn with 1.2 s grace; each coin returns 0.25 m. The cloud bank descends from the top of the frame with the deficit, rain and lightning rise from 45 %, and death is only at 0. In 1P the companion's hits are free; in 2P both runners share the bar — barging your partner into a wall costs you too.
 
-### 1.9 Progression
+### 1.10 Progression
 Seed of the Day for shared leaderboards, distance/coin milestones unlock cosmetic trails and companion hats, a *Dream Journal* of sections seen (e.g. "winter coast at night"). No timers, revives or loot boxes.
 
 ---

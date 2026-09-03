@@ -1,6 +1,7 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, provinceOf, CHUNK_LEN, DIFFICULTY } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, provinceOf, weatherOf, bridgeAt, avalancheAt, SETPIECE, CHUNK_LEN, DIFFICULTY } from './chunks.js';
+import { mulberry32, mixSeed } from './rng.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
 
@@ -41,7 +42,8 @@ export class World {
     this.log = [];                // inputs for replay/validation
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
-    this.bumpCool = 0; this.kaiju = null;
+    this.bumpCool = 0; this.kaiju = null; this.setpiece = null;
+    this.weather = weatherOf(seed, 0); this.gustRng = mulberry32(mixSeed(seed, 0x9057)); this.nextGust = 6; this.gust = null;
   }
 
   /** The kitsune (right track) — kept for HUD/debug convenience. */
@@ -75,6 +77,19 @@ export class World {
     if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, province: provinceOf(idx), index: idx }); }
     const kj = kaijuOf(idx);
     if ((kj?.id ?? null) !== (this.kaiju?.id ?? null)) { this.kaiju = kj; this._emit({ type: 'kaiju', kaiju: kj, index: idx }); }
+    const sp = bridgeAt(idx) ? 'bridge' : avalancheAt(idx) ? 'avalanche' : null;
+    if (sp !== this.setpiece) { this.setpiece = sp; this._emit({ type: 'setpiece', kind: sp, spec: sp ? SETPIECE[sp] : null, index: idx }); }
+    // --- weather: per section; gusts shove every runner a lane (telegraphed), slick roads slow lane changes
+    const wx = weatherOf(this.seed, idx);
+    if (wx !== this.weather) { this.weather = wx; this._emit({ type: 'weather', weather: wx }); }
+    for (const r of this.runners) { r.laneTime = 0.15 * wx.laneT; r.stumbleScale = wx.stumble; }
+    if (wx.gust > 0) {
+      if (!this.gust && this.time >= this.nextGust) { this.gust = { dir: this.gustRng.chance(0.5) ? -1 : 1, at: this.time + 0.8 }; this._emit({ type: 'gust.telegraph', dir: this.gust.dir, inSeconds: 0.8 }); }
+      if (this.gust && this.time >= this.gust.at) {
+        for (const r of this.runners) if (!r.disabled) { const t = r.lane + this.gust.dir; if (t >= 0 && t < LANES_TOTAL) { r.laneFromX = r.xLane; r.lane = t; r.laneT = 0; } }
+        this._emit({ type: 'gust', dir: this.gust.dir }); this.gust = null; this.nextGust = this.time + wx.gust * (0.7 + 0.6 * this.gustRng());
+      }
+    } else { this.gust = null; this.nextGust = this.time + 4; }
 
     // --- chunks ---
     this.pool.update(this.distance);
@@ -122,7 +137,7 @@ export class World {
     }
 
     // --- the typhoon ---
-    const pressure = this.cfg.drift * Math.min(1, this.distance / 2500);
+    const pressure = this.cfg.drift * Math.min(1, this.distance / 2500) * this.weather.pressure * (this.setpiece === 'avalanche' ? 2.2 : 1);
     const clean = this.runners.every(r => r.disabled || r.stumbleT === 0);
     this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - pressure * dt);
     if (this.storm <= 0) this._die('storm');

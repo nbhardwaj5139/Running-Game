@@ -44,6 +44,33 @@ export function shrineClimbPitch(index) {
   return [null, 13, 13, 0, -13, -13, 0, null][k] ?? null;
 }
 export const shrineTopAt = (index) => provinceOf(index).shrine && index % BIOME_LEN === 3;
+
+// ---- weather: one state per biome section, drawn from the season. Each state is a challenge.
+export const WEATHER = {
+  clear:    { id: 'clear',    jp: '晴れ', en: 'Clear',        laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 0,   rain: 0,   pressure: 1.0 },
+  rain:     { id: 'rain',     jp: '雨',   en: 'Rain',         laneT: 1.15, stumble: 1.0, gust: 0,   fog: 0.2, rain: 0.7, pressure: 1.0 },
+  thunder:  { id: 'thunder',  jp: '雷雨', en: 'Thunderstorm', laneT: 1.15, stumble: 1.0, gust: 9,   fog: 0.3, rain: 1.0, pressure: 1.3 },
+  wind:     { id: 'wind',     jp: '強風', en: 'High wind',    laneT: 1.0,  stumble: 1.0, gust: 6,   fog: 0,   rain: 0,   pressure: 1.0 },
+  fog:      { id: 'fog',      jp: '霧',   en: 'Fog',          laneT: 1.0,  stumble: 1.0, gust: 0,   fog: 1.0, rain: 0,   pressure: 1.0 },
+  snow:     { id: 'snow',     jp: '雪',   en: 'Snow',         laneT: 1.3,  stumble: 1.3, gust: 0,   fog: 0.3, rain: 0,   pressure: 1.0 },
+  blizzard: { id: 'blizzard', jp: '吹雪', en: 'Blizzard',     laneT: 1.3,  stumble: 1.3, gust: 7,   fog: 0.8, rain: 0,   pressure: 1.2 },
+};
+const WEATHER_BY_SEASON = [['clear', 'clear', 'rain'], ['clear', 'rain', 'thunder'], ['clear', 'wind', 'fog'], ['snow', 'snow', 'blizzard']];
+/** Weather for the section containing chunk `index` (pure in seed). The opening section is always clear. */
+export function weatherOf(seed, index) {
+  const section = Math.floor(Math.max(0, index) / BIOME_LEN); if (section === 0) return WEATHER.clear;
+  const r = mulberry32(mixSeed(seed ^ 0x3ea7, section));
+  return WEATHER[r.pick(WEATHER_BY_SEASON[seasonOf(index)])];
+}
+// ---- set pieces
+/** A collapsing bridge: chunk 5 of every other coast/mountain section (never a shrine or kaiju chunk). */
+export const bridgeAt = (index) => { const b = biomeOf(index); return (b === 3 || (b === 0 && !provinceOf(index).shrine)) && index % BIOME_LEN === 5 && Math.floor(index / BIOME_LEN) % 2 === 1 && !kaijuOf(index); };
+/** An avalanche chases the runners down the shrine stairs in winter. */
+export const avalancheAt = (index) => seasonOf(index) === 3 && (shrineClimbPitch(index) ?? 0) < 0;
+export const SETPIECE = {
+  bridge:    { id: 'bridge',    jp: '崩落', en: 'The bridge is giving way', throws: ['gap'], side: 0 },
+  avalanche: { id: 'avalanche', jp: '雪崩', en: 'Avalanche',               throws: ['drusen', 'stalk'], side: 0 },
+};
 export const seasonOf = (index) => Math.floor(Math.max(0, index) / SEASON_LEN) % SEASONS.length;
 /** 0..1 progress through the current season section (for blends at the boundary). */
 export const seasonBlend = (index) => (Math.max(0, index) % SEASON_LEN) / SEASON_LEN;
@@ -169,8 +196,8 @@ function weightedPick(rng, items, weights) {
 function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal) {
   const rng = mulberry32(mixSeed(mixSeed(seed, index), 0x7a + track));
   const cells = [], rows = [];
-  const release = wave < TUNING.releaseBelow && index > 2;
-  const wall = !release && diff > 0.7 && index % TUNING.wallEvery === 0;
+  const release = !kaiju && wave < TUNING.releaseBelow && index > 2;         // a thrower's chunk is never a release chunk
+  const wall = !release && !kaiju && diff > 0.7 && index % TUNING.wallEvery === 0;
   let reach = initialReach();
   let prev = null;
   const empty = () => new Array(LANES).fill(null);
@@ -212,7 +239,8 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
         else {
           const kinds = kaiju.throws.filter(k => k !== 'wave');
           const kind = rng.pick(kinds);
-          if (kind === 'wide') { const left = rng.int(0, LANES - 2); mask[left] = mask[left + 1] = 'wide'; mask.wideLeft = left; }
+          if (kaiju.id === 'bridge' && rng.chance(0.35)) { /* a beat that holds */ }
+          else if (kind === 'wide') { const left = rng.int(0, LANES - 2); mask[left] = mask[left + 1] = 'wide'; mask.wideLeft = left; }
           else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.35 * cfg.throws)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
         }
         tries++;
@@ -292,14 +320,14 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
 export function generate(seed, index, cfg = DIFFICULTY.normal) {
   const { diff, wave } = difficultyAt(seed, index, cfg);
   const z0 = index * CHUNK_LEN;
-  const kaiju = kaijuOf(index);
+  const kaiju = kaijuOf(index) || (bridgeAt(index) ? { ...SETPIECE.bridge, setpiece: true } : avalancheAt(index) ? { ...SETPIECE.avalanche, setpiece: true } : null);
   const waveBeats = new Set();
   if (kaiju && kaiju.throws.includes('wave')) { const r = mulberry32(mixSeed(seed, index) ^ 0x3a7e); waveBeats.add(r.int(1, 3)); }
   const tracks = [];
   for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats, cfg));
   const cells = tracks.flatMap(t => t.cells).sort((a, b) => a.z - b.z);
   return { index, z0, length: CHUNK_LEN, difficulty: diff, wave, release: tracks[0].release, wall: tracks.some(t => t.wall),
-    biome: biomeOf(index), season: seasonOf(index), kaiju, cells, rows: tracks.map(t => t.rows) };
+    biome: biomeOf(index), season: seasonOf(index), kaiju: kaiju && !kaiju.setpiece ? kaiju : null, setpiece: kaiju && kaiju.setpiece ? kaiju.id : null, weather: weatherOf(seed, index), cells, rows: tracks.map(t => t.rows) };
 }
 
 /**

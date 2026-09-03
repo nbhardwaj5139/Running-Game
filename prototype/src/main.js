@@ -57,6 +57,9 @@ function newWorld() {
       if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
       if (e.type === 'power') { hud.power.textContent = POWER_NAMES[e.kind] || e.kind; hud.power.classList.add('on'); powerT = 1.4; }
       if (e.type === 'section') showSection(e.season, e.biome, true, e.province);
+      if (e.type === 'weather' && running) { hud.power.textContent = `${e.weather.jp} ${e.weather.en.toUpperCase()}`; hud.power.classList.add('on'); powerT = 2; }
+      if (e.type === 'setpiece' && e.kind) { hud.toastJp.textContent = e.spec.jp; hud.toastEn.textContent = e.spec.en; hud.toast.classList.add('on'); toastT = 2.6; hud.power.textContent = '⚠ ' + e.spec.en.toUpperCase(); hud.power.classList.add('on'); powerT = 2.5; }
+      if (e.type === 'gust.telegraph') { hud.power.textContent = `${e.dir > 0 ? '→' : '←'} 突風 GUST ${e.dir > 0 ? '→' : '←'}`; hud.power.classList.add('on'); powerT = 0.9; }
       if (e.type === 'kaiju' && e.kaiju) { hud.toastJp.textContent = e.kaiju.jp; hud.toastEn.textContent = `KAIJU — ${e.kaiju.en}`; hud.toast.classList.add('on'); toastT = 3; hud.power.textContent = '⚠ ' + e.kaiju.en.split(',')[0].toUpperCase() + ' IS THROWING'; hud.power.classList.add('on'); powerT = 2.5; }
       if (e.type === 'death') onDeath(e);
     },

@@ -21,9 +21,11 @@ server with WebGL2.
   CHUNK_LEN=36, BEAT_LEN=6, BIOMES=['mountain','city','suburb','coast'],
   SEASONS=['spring','summer','fall','winter'], biomeOf(i), seasonOf(i),
   seasonBlend(i), laneX(lane), trackX(track), cellX(cell)`.
-  Track 0 (the tanuki) is centred at x=-4.6, track 1 (the kitsune) at x=+4.6.
-  The paved road spans |x| ≤ 7.9 with a 2.6 m median at the centre. Keep
-  scenery outside |x| ≥ 8.6 unless it is deliberately on the median.
+  The two tracks touch (TRACK_GAP = 0): the road is six lanes, global lane
+  g ∈ 0..5 at x = roadX(g) = (g - 2.5) · 2.2, so track 0 (the tanuni's home)
+  is centred at x=-3.3 and track 1 (the kitsune's) at x=+3.3. The paved road
+  spans |x| ≤ 6.6; a painted centre line, not a median, divides the tracks.
+  Keep scenery outside |x| ≥ 8.0.
 * A chunk covers z ∈ [z0, z0+36). Root space scrolls so the runners are at z=0
   in scene space; distant scenery (sky, mountains) lives in scene space and is
   static.
@@ -118,15 +120,16 @@ Uniforms (exact names): `uZ0` (chunk start z), `uTime`, `uBiome` (0..3),
 (vec3). The fragment shader gets world-ish coordinates: x across, and the
 absolute track z (`uZ0 + CHUNK_LEN/2 + localZ`).
 Draw:
-* Two 3-lane tracks (|x| within each track: centres ±4.6, half-width 3.3)
-  with a median strip (|x| < 1.3). Subtle lane guides at lane boundaries;
-  a crisp edge line at the outer road edge (|x| = 7.9).
+* One six-lane road, |x| ≤ 6.6, lanes 2.2 m wide centred at x = (g-2.5)·2.2.
+  Subtle lane guides at lane boundaries; a stronger painted centre line at
+  x = 0 (the boundary between the two home tracks); a crisp edge line at
+  |x| = 6.6.
 * Per biome: mountain = flagstone shrine path with moss between stones,
-  median = raked gravel; city = wet asphalt, white dashes, crosswalk every
-  chunk, median = concrete with painted stripe, puddles reflecting the light
+  centre line = a row of small stones; city = wet asphalt, white dashes, crosswalk every
+  chunk, centre line = double white; puddles reflecting the light
   list (streaks toward the viewer); suburb = pale asphalt with a yellow centre
-  line, gutters, median = low hedge green; coast = sandy road with tyre lines,
-  median = rope-post gravel, the *left* verge (x<-8) fades into cliff rock and
+  line, gutters, centre line = dashed yellow; coast = sandy road with tyre lines,
+  centre line = faded white, the *left* verge (x<-8) fades into cliff rock and
   the right (x>8) into sand then sea (deep teal) beyond x>20.
 * Per season: `uSnow` blends a snow layer over everything with tyre/foot
   tracks kept dark in the lanes; autumn scatters leaf specks (small warm

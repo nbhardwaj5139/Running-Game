@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, CHUNK_LEN, BIOMES, SEASONS, SEASON_LEN, laneX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt } from '../core/chunks.js';
+import { LANE_W, LANES, CHUNK_LEN, BIOMES, SEASON_LEN, roadX, cellX, biomeOf, seasonOf, rollerLaneAt } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
@@ -195,7 +195,7 @@ export class Renderer {
       m.position.set(ox, cell.type === 'gap' ? 0.02 : 0, cell.z); m.rotation.y = cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;
       v.meshes.push(m);
       if (variant.glow) { const g = this.pool(key + ':glow', variant.glow.geo, variant.glow.mat).take(); g.position.copy(m.position); g.rotation.copy(m.rotation); v.meshes.push(g); }
-      if (cell.type === 'roller') v.rollers.push({ m, cell, base: trackX(cell.track) });
+      if (cell.type === 'roller') v.rollers.push({ m, cell });
     }
     this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light });
     this.grass.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x9a55, c.index)), season, biome);
@@ -234,7 +234,8 @@ export class Renderer {
         for (const v of this.views.values()) for (const pw of v.powers) if (pw.cell === e.cell) { pw.m.visible = false; pw.ring.visible = false; this.shock.burst(pw.x, pw.z, this.powers[e.kind].ring); }
         break;
       }
-      case 'shield': this.shock.burst(trackX(e.runner) + laneX(this.world.runners[e.runner].lane), this.world.distance, new THREE.Color(1.5, 2.2, 2.6)); break;
+      case 'shield': this.shock.burst(roadX(this.world.runners[e.runner].xLane), this.world.distance, new THREE.Color(1.5, 2.2, 2.6)); break;
+      case 'bump': { const m = this.world.runners[e.mover]; this.shock.burst(roadX(m.xLane), this.world.distance, new THREE.Color(2.2, 1.8, 1.2)); this.shake = Math.max(this.shake, 0.35); break; }
       case 'stumble': this.shake = Math.max(this.shake, 0.5); if (R) R.hurt = 0.6; break;
       case 'fall': this.shake = Math.max(this.shake, 0.9); if (R) R.hurt = 1.0; break;
       case 'death': this.shake = 1.4; for (const r of this.rigs) r.hurt = 2; break;
@@ -270,7 +271,7 @@ export class Renderer {
     let leanSum = 0;
     for (const R of this.rigs) {
       const p = w.runners[R.track]; const g = R.rig.group;
-      const px = trackX(R.track) + (p.xLane - 1) * LANE_W;
+      const px = roadX(p.xLane);
       const slide = p.action === 'slide', air = !p.grounded;
       const laneVel = R.prevX === null ? 0 : (px - R.prevX) / Math.max(dt, 1e-3); R.prevX = px;
       R.lean += ((-laneVel * 0.05) - R.lean) * Math.min(1, dt * 10); leanSum += R.lean;
@@ -313,7 +314,7 @@ export class Renderer {
     this.coinPool.flush();
     for (const v of this.views.values()) {
       for (const pw of v.powers) { pw.m.position.y = 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z); pw.m.rotation.y += dt * 1.6; const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); }
-      for (const r of v.rollers) { r.m.position.x = r.base + laneX(rollerLaneAt(r.cell, w.tick)); r.m.rotation.y = r.cell.dir * this.time * 3; }
+      for (const r of v.rollers) { r.m.position.x = roadX(r.cell.track * LANES + rollerLaneAt(r.cell, w.tick)); r.m.rotation.y = r.cell.dir * this.time * 3; }
     }
     // shinkansen on the city viaduct
     if (this.train.visible) { this.train.position.z -= 62 * dt; if (this.train.position.z < w.distance - 70) this.train.visible = false; }

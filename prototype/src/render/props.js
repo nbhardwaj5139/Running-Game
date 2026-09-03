@@ -5,6 +5,7 @@
 // Design space: x across, y up, z forward; props sit on y=0 facing -z, centred
 // on x=0. Nothing here mirrors anything — the renderer's stage does that.
 import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAINT, GLOW, paint, merge, box, cyl, cone, sph } from './common.js';
 
 // ---- tiny helpers ----------------------------------------------------------
@@ -12,8 +13,9 @@ const P = (g, c, p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1]) => paint(g, c, { p
 /** hue/sat/light offset of a hex colour — for slight variation between variants. */
 const HS = (hex, h = 0, s = 0, l = 0) => new THREE.Color(hex).offsetHSL(h, s, l);
 const tor = (r, t, n = 6, m = 12) => new THREE.TorusGeometry(r, t, n, m);
-const dode = (r) => new THREE.DodecahedronGeometry(r, 0);
-const ico = (r) => new THREE.IcosahedronGeometry(r, 0);
+// polyhedra come non-indexed; index them so they merge with the indexed primitives
+const dode = (r) => mergeVertices(new THREE.DodecahedronGeometry(r, 0));
+const ico = (r) => mergeVertices(new THREE.IcosahedronGeometry(r, 0));
 const HPI = Math.PI / 2;
 /** Build a catalogue variant. `glow` (optional) is an array of GLOW-coloured parts. */
 const V = (parts, name, glow) => {
@@ -161,10 +163,10 @@ function gapMountain() {
 }
 function fallenCedar(v) {
   const bark = HS('#6b4b32', 0, 0, v * 0.03), leaf = HS('#3f6b34', v * 0.03, 0, 0);
-  const parts = [P(cyl(0.45, 0.62, 4.8, 10), bark, [0, 0.62, 0], [0, 0, HPI]), P(cyl(0.61, 0.61, 0.06, 10), '#c9a978', [-2.42, 0.62, 0], [0, 0, HPI]),
-    P(box(0.5, 0.55, 0.5), bark, [-2.0, 0.25, 0.1]), P(box(0.5, 0.55, 0.5), bark, [2.0, 0.25, 0.1])];
-  for (let i = 0; i < 5; i++) { const x = 0.4 + i * 0.45, s = 1 - i * 0.12; parts.push(P(cone(0.55 * s, 1.2 * s, 7), leaf, [x, 1.4 + i * 0.05, i % 2 ? 0.45 : -0.4], [i % 2 ? -0.5 : 0.5, 0, 0.35])); }
-  parts.push(P(cone(0.5, 1.4, 7), leaf, [2.5, 1.0, 0], [0, 0, -HPI]), P(cone(0.4, 1.0, 7), leaf, [1.9, 1.7, 0], [0.3, 0, -0.3]));
+  const parts = [P(cyl(0.45, 0.62, 4.4, 10), bark, [0, 0.62, 0], [0, 0, HPI]), P(cyl(0.61, 0.61, 0.06, 10), '#c9a978', [-2.22, 0.62, 0], [0, 0, HPI]),
+    P(box(0.5, 0.55, 0.5), bark, [-1.8, 0.25, 0.1]), P(box(0.5, 0.55, 0.5), bark, [1.8, 0.25, 0.1])];
+  for (let i = 0; i < 5; i++) { const x = 0.2 + i * 0.4, s = 1 - i * 0.12; parts.push(P(cone(0.55 * s, 1.2 * s, 7), leaf, [x, 1.4 + i * 0.05, i % 2 ? 0.45 : -0.4], [i % 2 ? -0.5 : 0.5, 0, 0.35])); }
+  parts.push(P(cone(0.45, 0.9, 7), leaf, [1.9, 1.0, 0], [0, 0, -HPI]), P(cone(0.4, 1.0, 7), leaf, [1.6, 1.7, 0], [0.3, 0, -0.3]));
   return V(parts, 'fallen cedar');
 }
 function sakeBarrel() {
@@ -179,10 +181,10 @@ function sakeBarrel() {
 // CITY — neon streets
 // ============================================================================
 function vendingMachine(tint) {
-  const parts = [P(box(0.95, 1.9, 0.7), tint, [0, 0.95, 0]), P(box(0.7, 1.05, 0.06), '#dfe9ff', [0.05, 1.28, -0.36]), P(box(0.2, 0.5, 0.06), '#222', [-0.32, 0.9, -0.36]),
-    P(box(0.95, 0.12, 0.7), '#2a2a2a', [0, 0.06, 0]), P(box(0.5, 0.18, 0.06), '#2a2a2a', [0.1, 0.35, -0.36]), P(box(0.6, 0.1, 0.05), '#fff', [0.05, 1.85, -0.36])];
+  const parts = [P(box(0.95, 2.05, 0.7), tint, [0, 1.02, 0]), P(box(0.7, 1.1, 0.06), '#dfe9ff', [0.05, 1.3, -0.36]), P(box(0.2, 0.5, 0.06), '#222', [-0.32, 0.9, -0.36]),
+    P(box(0.95, 0.12, 0.7), '#2a2a2a', [0, 0.06, 0]), P(box(0.5, 0.18, 0.06), '#2a2a2a', [0.1, 0.35, -0.36]), P(box(0.6, 0.1, 0.05), '#fff', [0.05, 1.95, -0.36])];
   for (let i = 0; i < 6; i++) parts.push(P(cyl(0.05, 0.05, 0.16, 6), ['#e8d24a', '#4aa3e8', '#e84a4a', '#8fd36b', '#f4efe4', '#e89a4a'][i], [-0.2 + (i % 3) * 0.24, 1.55 - Math.floor(i / 3) * 0.4, -0.36]));
-  return V(parts, 'vending machine', [P(box(0.62, 0.08, 0.03), [1.6, 1.6, 1.8], [0.05, 1.85, -0.375])]);
+  return V(parts, 'vending machine', [P(box(0.62, 0.08, 0.03), [1.6, 1.6, 1.8], [0.05, 1.95, -0.375])]);
 }
 function pachinkoPillar(v) {
   const parts = [P(box(0.7, 2.4, 0.5), HS('#e3342f', v * 0.02, 0, 0), [0, 1.2, 0]), P(box(0.8, 0.15, 0.6), '#f6d35a', [0, 2.45, 0]), P(box(0.8, 0.1, 0.6), '#2a2a2a', [0, 0.05, 0])];
@@ -368,4 +370,232 @@ function shiba() {
     P(box(0.06, 0.05, 0.05), '#f4efe4', [0.52, 0.48, 0])];
   for (const [x, z, a] of [[0.28, -0.13, 0.6], [0.28, 0.13, -0.5], [-0.3, -0.13, -0.6], [-0.3, 0.13, 0.5]]) parts.push(P(cyl(0.05, 0.045, 0.4, 6), fur, [x + a * 0.15, 0.3, z], [0, 0, a]), P(sph(0.06, 5), cream, [x + a * 0.32, 0.12, z]));
   return V(parts, 'Shiba running across');
+}
+
+// ============================================================================
+// COAST — cliff road, harbour
+// ============================================================================
+function bollard(v) {
+  const iron = HS('#3e4448', 0, 0, v * 0.02), parts = [P(cyl(0.3, 0.36, 1.7, 10), iron, [0, 0.85, 0]), P(sph(0.36, 10), iron, [0, 1.75, 0], [0, 0, 0], [1, 0.65, 1]), P(cyl(0.44, 0.48, 0.18, 10), '#8d8a80', [0, 0.09, 0]),
+    P(cyl(0.16, 0.16, 0.5, 8), iron, [0, 2.2, 0]), P(sph(0.2, 8), '#e3342f', [0, 2.45, 0])];
+  for (let i = 0; i < 4; i++) parts.push(P(tor(0.36, 0.04, 5, 12), '#d9c79a', [0, 1.0 + i * 0.13, 0], [HPI, 0, 0]));
+  parts.push(...rope([0.35, 1.05, 0], [0.9, 0.05, 0.4], 0.035, '#d9c79a', 0.05, 3), P(cyl(0.12, 0.12, 0.08, 8), '#d9c79a', [0.9, 0.04, 0.4]), P(sph(0.06, 6), '#f4efe4', [-0.3, 0.55, -0.2], [0, 0, 0], [1, 0.6, 1]));
+  return V(parts, 'mooring bollard with rope');
+}
+function crabPots(v) {
+  const parts = [], wire = HS('#6a7a6a', 0, 0, v * 0.03);
+  const pot = (x, y, z, ry) => { parts.push(P(cyl(0.42, 0.42, 0.5, 10), wire, [x, y, z], [0, ry, 0]), P(tor(0.42, 0.025, 4, 12), '#2a2a2a', [x, y + 0.25, z], [HPI, 0, 0]), P(tor(0.42, 0.025, 4, 12), '#2a2a2a', [x, y - 0.25, z], [HPI, 0, 0]), P(box(0.3, 0.05, 0.2), '#e07a2a', [x + 0.2, y + 0.28, z], [0, ry, 0])); };
+  pot(0, 0.25, 0, 0); pot(0.05, 0.75, 0.05, 0.4); pot(-0.05, 1.25, -0.02, 0.9); pot(0.03, 1.75, 0.03, 0.2);
+  parts.push(P(sph(0.14, 7), '#e3342f', [0.35, 2.12, -0.15]), P(sph(0.12, 7), '#f4efe4', [-0.3, 2.08, 0.12]), ...rope([0.35, 2.05, -0.15], [-0.3, 2.0, 0.12], 0.02, '#d9c79a', 0.05, 3));
+  return V(parts, 'stacked crab pots');
+}
+function lighthousePost(v) {
+  const parts = [P(cyl(0.34, 0.4, 0.2, 10), '#8d8a80', [0, 0.1, 0])];
+  for (let i = 0; i < 6; i++) parts.push(P(cyl(0.18 - i * 0.008, 0.19 - i * 0.008, 0.32, 10), i % 2 ? HS('#e3342f', 0, 0, v * 0.03) : '#f4efe4', [0, 0.36 + i * 0.32, 0]));
+  parts.push(P(cyl(0.22, 0.22, 0.06, 10), '#2a2a2a', [0, 2.3, 0]), P(cyl(0.14, 0.14, 0.24, 8), '#dfe9ff', [0, 2.45, 0]), P(cone(0.24, 0.18, 10), '#e3342f', [0, 2.66, 0]), P(box(0.6, 0.05, 0.05), '#2a2a2a', [0, 2.3, 0]));
+  return V(parts, 'lighthouse-striped post', [P(cyl(0.11, 0.11, 0.2, 8), [1.8, 1.8, 2.4], [0, 2.45, 0])]);
+}
+function fishRack(v) {
+  const wood = HS('#8b6a3a', 0, 0, v * 0.03), parts = [P(box(0.1, 2.2, 0.1), wood, [-0.55, 1.1, 0]), P(box(0.1, 2.2, 0.1), wood, [0.55, 1.1, 0]), P(box(1.3, 0.06, 0.06), wood, [0, 2.15, 0]), P(box(1.3, 0.06, 0.06), wood, [0, 1.35, 0]),
+    P(box(1.3, 0.06, 0.06), wood, [0, 0.6, 0]), P(box(0.3, 0.12, 0.3), '#8d8a80', [-0.55, 0.06, 0]), P(box(0.3, 0.12, 0.3), '#8d8a80', [0.55, 0.06, 0])];
+  for (let i = 0; i < 4; i++) for (const y of [2.15, 1.35]) parts.push(P(sph(0.09, 6), '#a9b6c0', [-0.42 + i * 0.28, y - 0.28, 0.02], [0, 0, 0], [1, 2.6, 0.5]), P(cone(0.06, 0.12, 4), '#a9b6c0', [-0.42 + i * 0.28, y - 0.56, 0.02], [Math.PI, 0, 0]));
+  parts.push(P(box(0.9, 0.04, 0.5), '#f4efe4', [0, 0.62, 0]), P(sph(0.16, 6), '#d9c79a', [0.1, 0.7, 0], [0, 0, 0], [3, 0.4, 1.5]));   // squid drying on a tray
+  return V(parts, 'dried-fish drying rack');
+}
+function netDrape(v) {
+  const net = HS('#4b6a5a', v * 0.03, 0, 0), parts = [P(cyl(0.07, 0.09, 1.7, 7), '#6b4b32', [-1.15, 0.85, 0]), P(cyl(0.07, 0.09, 1.7, 7), '#6b4b32', [1.15, 0.85, 0]), P(cyl(0.035, 0.035, 2.4, 6), '#d9c79a', [0, 1.65, 0], [0, 0, HPI])];
+  for (let i = 0; i < 6; i++) parts.push(...rope([-1.15, 1.6, 0], [1.15, 1.6, 0], 0.012, net, 0.35 + i * 0.05, 6).map((g, k) => g.translate(0, -i * 0.05, (k % 2 ? 0.03 : -0.03) * (i % 2 ? 1 : -1))));
+  for (let i = 0; i < 4; i++) parts.push(...rope([-0.9 + i * 0.6, 1.62, 0], [-0.9 + i * 0.6, 1.1, 0], 0.012, net, 0.0, 2));
+  for (let i = 0; i < 3; i++) parts.push(P(sph(0.09, 7), i ? '#e3342f' : '#f4efe4', [-0.6 + i * 0.6, 1.16 + (i === 1 ? -0.06 : 0), 0.05]));   // floats
+  return V(parts, 'fishing-net drape');
+}
+function driftwoodBeam(v) {
+  const wood = HS('#b8a888', 0, 0, v * 0.03), parts = [P(dode(0.4), '#6e7264', [-1.15, 0.35, 0], [0, 0.4, 0], [1.1, 1.0, 1.1]), P(dode(0.5), '#6e7264', [-1.2, 0.95, 0.05], [0, 1.1, 0], [1.0, 1.0, 0.9]),
+    P(dode(0.45), '#7a7e72', [1.2, 0.4, 0], [0, 0.7, 0], [1.1, 0.9, 1.1]), P(dode(0.42), '#6e7264', [1.15, 1.0, -0.05], [0, 0.2, 0]),
+    P(cyl(0.12, 0.16, 2.9, 8), wood, [0, 1.35, 0], [0, 0, HPI + 0.04]), seg([-0.7, 1.4, 0], [-0.3, 1.9, -0.2], 0.05, wood), seg([0.6, 1.33, 0], [1.0, 1.65, 0.2], 0.045, wood)];
+  parts.push(...rope([-0.2, 1.25, 0], [-0.2, 1.05, 0], 0.015, '#d9c79a', 0, 1), P(sph(0.08, 6), '#e3342f', [-0.2, 0.98, 0]), P(sph(0.05, 5), '#f4efe4', [0.3, 1.3, -0.1]));
+  return V(parts, 'driftwood beam');
+}
+function floatLine(v) {
+  const parts = [P(cyl(0.08, 0.1, 1.55, 7), '#6b4b32', [-1.1, 0.77, 0]), P(cyl(0.08, 0.1, 1.55, 7), '#6b4b32', [1.1, 0.77, 0]), ...rope([-1.1, 1.52, 0], [1.1, 1.52, 0], 0.03, '#d9c79a', 0.3, 7)];
+  const cols = ['#e3342f', '#f6d35a', '#f4efe4', '#3fa0d0'];
+  for (let i = 0; i < 5; i++) { const t = (i + 0.5) / 5, x = -1.1 + 2.2 * t, y = 1.52 - 0.3 * 4 * t * (1 - t); parts.push(P(sph(0.12, 7), cols[(i + v) % 4], [x, y - 0.14, 0], [0, 0, 0], [1, 1.25, 1])); }
+  for (let i = 0; i < 4; i++) parts.push(P(box(0.1, 0.16, 0.01), '#f4efe4', [-0.88 + i * 0.6, 1.4, 0.05], [0, 0, 0.3]));   // small pennants
+  return V(parts, 'float line with pennants');
+}
+function tidePoolRocks(v) {
+  const rock = HS('#5a6266', 0, 0, v * 0.03);
+  return V([P(dode(0.5), rock, [-0.5, 0.2, 0], [0, v, 0], [1.3, 0.55, 1.1]), P(dode(0.42), HS(rock, 0, 0, 0.05), [0.55, 0.22, 0.1], [0, 0.6, 0], [1.2, 0.6, 1]), P(dode(0.3), rock, [0.05, 0.3, -0.3], [0, 1.3, 0], [1, 0.7, 1]),
+    P(cyl(0.7, 0.7, 0.03, 12), '#3fa0b0', [0, 0.05, 0.1], [0, 0, 0], [1.4, 1, 1]), P(sph(0.06, 6), '#e07a2a', [0.3, 0.12, 0.15]), P(sph(0.05, 6), '#a04a8a', [-0.2, 0.1, 0.3]),
+    P(sph(0.3, 6), '#4b6a5a', [-0.7, 0.28, 0.2], [0, 0, 0], [1, 0.4, 1])], 'tide-pool rocks');
+}
+function ropeCoil(v) {
+  const parts = [], c = HS('#d9c79a', 0, 0, v * 0.03);
+  for (let i = 0; i < 4; i++) parts.push(P(tor(0.42 - i * 0.03, 0.06, 6, 16), i % 2 ? c : HS(c, 0, 0, -0.06), [0, 0.07 + i * 0.12, 0], [HPI, 0, 0]));
+  parts.push(...rope([0.42, 0.45, 0], [0.9, 0.06, 0.3], 0.05, c, 0.05, 3), P(sph(0.08, 6), '#e3342f', [0.95, 0.07, 0.35]));
+  return V(parts, 'rope coil');
+}
+function beachedBuoy(v) {
+  const c = v % 2 ? '#e3342f' : '#f6a623';
+  return V([P(sph(0.42, 12), c, [0, 0.42, 0], [0, 0, 0], [1, 1.1, 1]), P(cyl(0.42, 0.42, 0.12, 12), '#f4efe4', [0, 0.42, 0]), P(cyl(0.06, 0.06, 0.4, 8), '#2a2a2a', [0, 0.95, 0]), P(sph(0.09, 6), '#2a2a2a', [0, 1.15, 0]),
+    P(tor(0.1, 0.02, 4, 10), '#2a2a2a', [0.4, 0.2, 0], [0, 0, HPI]), P(box(0.3, 0.06, 0.02), '#f4efe4', [0, 0.6, -0.42]), P(sph(0.5, 6), '#c9b98a', [0.2, 0.0, 0.1], [0, 0, 0], [1.6, 0.15, 1.3])], 'beached buoy');
+}
+function gapCoast() {
+  const parts = [...pit(2.1, 3), P(box(2.5, 0.04, 3.3), '#c9b98a', [0, 0.02, 0])];
+  for (let i = 0; i < 8; i++) parts.push(P(sph(0.16, 6), '#eaf6f8', [(i % 2 ? 1 : -1) * (1.05 + (i % 3) * 0.1), 0.03, -1.4 + i * 0.4], [0, 0, 0], [1.6, 0.4, 1.2]));   // sea foam at the lip
+  parts.push(P(box(0.8, 0.06, 0.4), '#5a5a5a', [-0.5, 0.03, -1.55], [0, 0.4, 0]), P(box(0.6, 0.06, 0.5), '#5a5a5a', [0.6, 0.02, 1.55], [0, -0.3, 0]), P(box(2.1, 0.05, 2.9), '#2a5a70', [0, -0.58, 0]));
+  return V(parts, 'washed-out road');
+}
+function overturnedBoat(v) {
+  const hull = v ? '#2f5a7a' : '#f4efe4', stripe = v ? '#f4efe4' : '#c9302c';
+  const parts = [P(cyl(0.9, 0.55, 4.0, 12), hull, [0, 0.9, 0], [0, 0, HPI], [1, 1, 0.72]), P(cyl(0.95, 0.95, 0.06, 12), '#6b4b32', [0, 0.9, 0], [0, 0, HPI], [1, 1, 0.72]),
+    P(box(4.0, 0.16, 1.3), stripe, [0, 0.9, 0]), P(box(3.4, 0.1, 0.16), '#6b4b32', [0, 1.75, 0]), P(cone(0.6, 0.8, 8), hull, [2.15, 0.6, 0], [0, 0, -HPI], [1, 1, 0.75])];
+  parts.push(P(box(0.34, 0.5, 1.3), '#6b4b32', [-2.0, 0.3, 0]), P(box(0.5, 0.06, 0.06), '#f4efe4', [-2.05, 0.55, 0]), P(sph(0.18, 7), '#f6a623', [-1.7, 0.18, -0.85]),
+    P(cyl(0.05, 0.05, 1.8, 6), '#c9b98a', [0.3, 0.05, -0.9], [0, 0.4, HPI]), ...rope([1.4, 0.05, -0.8], [2.2, 0.05, -1.05], 0.03, '#d9c79a', 0.0, 2));
+  return V(parts, 'overturned fishing boat');
+}
+function rollingBuoy() {
+  return V([P(sph(0.52, 12), '#f6a623', [0, 0.55, 0]), P(tor(0.52, 0.05, 5, 16), '#f4efe4', [0, 0.55, 0], [0, 0, HPI]), P(tor(0.52, 0.05, 5, 16), '#e3342f', [0, 0.55, 0], [HPI, 0, 0]),
+    P(cyl(0.06, 0.06, 0.4, 8), '#2a2a2a', [0.65, 0.55, 0], [0, 0, HPI]), P(sph(0.1, 6), '#2a2a2a', [0.9, 0.55, 0]), P(tor(0.08, 0.02, 4, 10), '#2a2a2a', [-0.58, 0.55, 0], [0, HPI, 0])], 'rolling buoy');
+}
+
+// ============================================================================
+// catalogue
+// ============================================================================
+/** [biome][type] -> variants { geo, mat, name, glow? }. Filled by buildObstacles(). */
+export const OBSTACLES = { mountain: {}, city: {}, suburb: {}, coast: {} };
+let built = false;
+export function buildObstacles() {
+  if (built) return OBSTACLES;
+  built = true;
+  OBSTACLES.mountain = {
+    stalk: [stoneLantern(0), bambooCluster(1), jizo(2), cedarStump(3)],
+    arch: [toriiSmall(0), shimenawaGate(1), emaBranch(2)],
+    drusen: [mossBoulder(0), fallenLog(1), saisenBox(2)],
+    gap: [gapMountain()], wide: [fallenCedar(0), fallenCedar(1)], roller: [sakeBarrel()],
+  };
+  OBSTACLES.city = {
+    stalk: [vendingMachine('#d23b3b'), vendingMachine('#2f6fbf'), pachinkoPillar(2), manekiNeko(3)],
+    arch: [noren(0), shopAwning(1), kanjiBanner(2)],
+    drusen: [constructionBarrier(0), bikeRack(1), cardboardStack(2)],
+    gap: [gapCity()], wide: [truckTail(0), truckTail(1)], roller: [salaryman()],
+  };
+  OBSTACLES.suburb = {
+    stalk: [utilityPole(0), postbox(1), shigarakiTanuki(2), gardenLantern(3)],
+    arch: [crossingGate(0), laundryPole(1), inariTorii(2)],
+    drusen: [gardenWall(0), parkedBicycle(1), flowerPlanter(2)],
+    gap: [gapSuburb()], wide: [keiCar(0), keiCar(1)], roller: [shiba()],
+  };
+  OBSTACLES.coast = {
+    stalk: [bollard(0), crabPots(1), lighthousePost(2), fishRack(3)],
+    arch: [netDrape(0), driftwoodBeam(1), floatLine(2)],
+    drusen: [tidePoolRocks(0), ropeCoil(1), beachedBuoy(2)],
+    gap: [gapCoast()], wide: [overturnedBoat(0), overturnedBoat(1)], roller: [rollingBuoy()],
+  };
+  return OBSTACLES;
+}
+/** Spare props not in the sim's 4-variant rotation (the taxi-stand pole); scenery may pool them. */
+export function buildSpares() { return { taxiPole: taxiPole(0) }; }
+
+// ============================================================================
+// power pickups — ~0.9 m tall icons, centred on x/z, y from 0
+// ============================================================================
+export function buildPowers() {
+  // shield: an omamori charm pouch with its braided cord and knot
+  const shield = merge([P(box(0.42, 0.62, 0.12), '#c9302c', [0, 0.36, 0]), P(box(0.42, 0.12, 0.13), '#e9c46a', [0, 0.62, 0]), P(box(0.36, 0.08, 0.14), '#e9c46a', [0, 0.18, 0]),
+    P(box(0.2, 0.3, 0.14), '#f4efe4', [0, 0.38, 0]), P(box(0.05, 0.18, 0.15), '#c9302c', [0, 0.38, 0]), P(box(0.12, 0.04, 0.15), '#c9302c', [0, 0.32, 0]),
+    ...rope([-0.1, 0.68, 0], [0, 0.88, 0], 0.02, '#f2c230', 0, 2), ...rope([0.1, 0.68, 0], [0, 0.88, 0], 0.02, '#f2c230', 0, 2), P(tor(0.05, 0.02, 4, 10), '#f2c230', [0, 0.86, 0]),
+    P(sph(0.045, 6), '#f2c230', [-0.06, 0.73, 0]), P(sph(0.045, 6), '#f2c230', [0.06, 0.73, 0])]);
+  // magnet: a blue kitsunebi (fox-fire) flame — GLOW so it blooms
+  const magnet = merge([P(sph(0.22, 10), [0.3, 1.2, 2.6], [0, 0.32, 0], [0, 0, 0], [1, 1.15, 1]), P(cone(0.2, 0.5, 10), [0.4, 1.4, 2.8], [0, 0.66, 0]), P(cone(0.08, 0.28, 7), [1.4, 2.2, 3.0], [0.14, 0.72, 0], [0, 0, -0.5]),
+    P(cone(0.07, 0.22, 7), [1.4, 2.2, 3.0], [-0.13, 0.66, 0], [0, 0, 0.55]), P(sph(0.1, 8), [2.0, 2.6, 3.2], [0, 0.34, -0.12]), P(sph(0.06, 6), [0.6, 1.6, 3.0], [0.26, 0.15, 0.05]), P(sph(0.045, 6), [0.6, 1.6, 3.0], [-0.24, 0.2, -0.05])]);
+  // dash: a pair of geta sandals with wind lines
+  const geta = (x, c) => [P(box(0.22, 0.05, 0.5), c, [x, 0.06, 0]), P(box(0.2, 0.06, 0.04), HS(c, 0, 0, -0.1), [x, 0.015, -0.14]), P(box(0.2, 0.06, 0.04), HS(c, 0, 0, -0.1), [x, 0.015, 0.14]),
+    seg([x, 0.08, 0.14], [x - 0.08, 0.08, -0.1], 0.012, '#c9302c', 4), seg([x, 0.08, 0.14], [x + 0.08, 0.08, -0.1], 0.012, '#c9302c', 4)];
+  const dash = merge([...geta(-0.16, '#c9a978'), ...geta(0.16, '#b8925a'), P(tor(0.28, 0.02, 4, 12), '#eaf6f8', [0, 0.45, 0], [HPI, 0, 0.2]).scale(1, 1.2, 1), P(tor(0.22, 0.018, 4, 12), '#eaf6f8', [0.05, 0.68, 0.1], [HPI, 0.2, 0]),
+    P(box(0.5, 0.02, 0.02), '#eaf6f8', [-0.35, 0.3, 0.2]), P(box(0.36, 0.02, 0.02), '#eaf6f8', [-0.4, 0.2, -0.15]), P(box(0.28, 0.02, 0.02), '#eaf6f8', [-0.45, 0.4, 0.0]), P(sph(0.05, 6), '#eaf6f8', [0, 0.86, 0])]);
+  // x2: a daruma (one eye painted)
+  const x2 = merge([P(sph(0.36, 12), '#d8342c', [0, 0.42, 0], [0, 0, 0], [1, 1.2, 1]), P(sph(0.26, 10), '#f7f2ea', [0, 0.5, -0.22], [0, 0, 0], [1, 1.1, 0.5]), P(sph(0.06, 6), '#1e1e1e', [-0.09, 0.56, -0.33]),
+    P(tor(0.055, 0.015, 4, 10), '#1e1e1e', [0.09, 0.56, -0.33]), P(box(0.05, 0.06, 0.02), '#1e1e1e', [-0.12, 0.66, -0.34], [0, 0, -0.4]), P(box(0.05, 0.06, 0.02), '#1e1e1e', [0.12, 0.66, -0.34], [0, 0, 0.4]),
+    P(box(0.18, 0.05, 0.02), '#1e1e1e', [0, 0.42, -0.35]), P(box(0.3, 0.14, 0.02), '#f2c230', [0, 0.16, -0.32]), P(box(0.08, 0.1, 0.03), '#1e1e1e', [0, 0.16, -0.33]), P(sph(0.16, 8), '#d8342c', [0, 0.82, 0], [0, 0, 0], [1, 0.5, 1])]);
+  // heal: a sakura branch in bloom
+  const branch = [seg([-0.3, 0.05, 0], [0.25, 0.75, 0], 0.03, '#5a4030'), seg([0, 0.4, 0], [-0.2, 0.7, 0.05], 0.02, '#5a4030'), seg([0.15, 0.6, 0], [0.4, 0.55, -0.05], 0.018, '#5a4030')];
+  const bloom = (x, y, z, c = '#ffb7c5') => { const out = [P(sph(0.045, 6), '#f2c230', [x, y, z])]; for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; out.push(P(sph(0.055, 6), c, [x + Math.cos(a) * 0.07, y + Math.sin(a) * 0.07, z], [0, 0, 0], [1, 1, 0.5])); } return out; };
+  const heal = merge([...branch, ...bloom(-0.22, 0.78, 0.05), ...bloom(0.1, 0.5, -0.05, '#ffc9d6'), ...bloom(0.28, 0.82, 0), ...bloom(0.42, 0.58, -0.06, '#ff9fb4'), ...bloom(-0.05, 0.3, 0.06),
+    P(sph(0.05, 6), '#ffb7c5', [-0.34, 0.22, -0.1], [0, 0, 0], [1, 1, 0.4]), P(sph(0.04, 6), '#ffd6df', [0.25, 0.28, 0.12], [0, 0, 0], [1, 1, 0.4]), P(box(0.12, 0.04, 0.01), '#7fae4a', [0.05, 0.42, 0.02], [0, 0, 0.6])]);
+  return {
+    shield: { geo: shield, mat: PAINT, ring: new THREE.Color('#ffb347') },
+    magnet: { geo: magnet, mat: GLOW, ring: new THREE.Color('#3fe0ff') },
+    dash: { geo: dash, mat: PAINT, ring: new THREE.Color('#eaf6f8') },
+    x2: { geo: x2, mat: PAINT, ring: new THREE.Color('#ff5a3c') },
+    heal: { geo: heal, mat: PAINT, ring: new THREE.Color('#ff9fb4') },
+  };
+}
+
+// ============================================================================
+// runner rigs — ~0.9 m tall, built from primitives, materials from matFactory
+// ============================================================================
+export function buildRig(kind, matFactory) {
+  const g = new THREE.Group(); const mats = []; const M = (hex) => { const m = matFactory(hex); mats.push(m); return m; };
+  const add = (parent, geo, m, p, r = [0, 0, 0], s = [1, 1, 1]) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(...p); mesh.rotation.set(...r); mesh.scale.set(...s); parent.add(mesh); return mesh; };
+  const dark = M('#2b1d1a'), legs = [], ears = [];
+  let body, head, tail;
+  if (kind === 'tanuki') {
+    const fur = M('#7a5a3e'), light = M('#d9c3a0'), mask = M('#2a1c14'), straw = M('#d9c380');
+    body = add(g, new THREE.SphereGeometry(0.27, 12, 9), fur, [0, 0.5, 0], [0, 0, 0], [1, 1, 1.35]);
+    add(g, new THREE.SphereGeometry(0.2, 10, 8), light, [0, 0.42, 0.05], [0, 0, 0], [1, 0.95, 1.5]);
+    head = add(g, new THREE.SphereGeometry(0.21, 12, 10), fur, [0, 0.72, 0.36]);
+    add(head, new THREE.SphereGeometry(0.09, 8, 6), light, [0, -0.06, 0.15], [0, 0, 0], [1.5, 1, 1]);         // muzzle
+    add(head, new THREE.SphereGeometry(0.035, 6, 6), dark, [0, -0.04, 0.24]);
+    add(head, new THREE.BoxGeometry(0.34, 0.09, 0.14), mask, [0, 0.04, 0.14]);                                  // eye mask
+    add(head, new THREE.SphereGeometry(0.03, 6, 6), light, [-0.09, 0.05, 0.2]); add(head, new THREE.SphereGeometry(0.03, 6, 6), light, [0.09, 0.05, 0.2]);
+    add(head, new THREE.SphereGeometry(0.016, 5, 5), dark, [-0.09, 0.05, 0.225]); add(head, new THREE.SphereGeometry(0.016, 5, 5), dark, [0.09, 0.05, 0.225]);
+    ears.push(add(head, new THREE.SphereGeometry(0.06, 7, 6), fur, [-0.15, 0.16, -0.02]), add(head, new THREE.SphereGeometry(0.06, 7, 6), fur, [0.15, 0.16, -0.02]));
+    add(head, new THREE.ConeGeometry(0.34, 0.14, 12), straw, [0, 0.22, -0.03], [0.2, 0, 0]); add(head, new THREE.CylinderGeometry(0.1, 0.13, 0.08, 10), straw, [0, 0.3, -0.04], [0.2, 0, 0]);   // straw hat
+    tail = new THREE.Group(); tail.position.set(0, 0.52, -0.34); g.add(tail);
+    const t = add(tail, new THREE.CapsuleGeometry(0.09, 0.26, 4, 8), fur, [0, 0.05, -0.16], [-1.1, 0, 0]);
+    for (const y of [-0.08, 0.06]) add(t, new THREE.CylinderGeometry(0.095, 0.095, 0.05, 8), mask, [0, y, 0]);
+    add(t, new THREE.SphereGeometry(0.075, 7, 6), mask, [0, 0.2, 0]);
+    for (const [x, z] of [[-0.14, 0.2], [0.14, 0.2], [-0.14, -0.16], [0.14, -0.16]]) {
+      const pivot = new THREE.Group(); pivot.position.set(x, 0.36, z); g.add(pivot);
+      add(pivot, new THREE.CylinderGeometry(0.05, 0.045, 0.34, 6), fur, [0, -0.17, 0]); add(pivot, new THREE.SphereGeometry(0.055, 6, 5), mask, [0, -0.34, 0.01]);
+      legs.push(pivot);
+    }
+  } else {
+    const orange = M('#e8792c'), cream = M('#fff3e0'), sock = M('#3a2418'), pink = M('#f4a3b5');
+    body = add(g, new THREE.CapsuleGeometry(0.2, 0.42, 4, 10), orange, [0, 0.44, 0], [HPI, 0, 0]);
+    add(g, new THREE.CapsuleGeometry(0.14, 0.36, 4, 8), cream, [0, 0.36, 0.02], [HPI, 0, 0]);
+    head = add(g, new THREE.SphereGeometry(0.19, 12, 10), orange, [0, 0.64, 0.4]);
+    add(head, new THREE.ConeGeometry(0.1, 0.24, 8), cream, [0, -0.06, 0.2], [HPI, 0, 0]);                    // snout
+    add(head, new THREE.SphereGeometry(0.035, 6, 6), dark, [0, -0.06, 0.32]);
+    add(head, new THREE.SphereGeometry(0.03, 6, 6), dark, [-0.08, 0.04, 0.15]); add(head, new THREE.SphereGeometry(0.03, 6, 6), dark, [0.08, 0.04, 0.15]);
+    add(head, new THREE.SphereGeometry(0.09, 7, 6), cream, [-0.1, -0.02, 0.1], [0, 0, 0], [1, 0.8, 1]); add(head, new THREE.SphereGeometry(0.09, 7, 6), cream, [0.1, -0.02, 0.1], [0, 0, 0], [1, 0.8, 1]);  // cheeks
+    for (const s of [-1, 1]) {
+      const ear = add(head, new THREE.ConeGeometry(0.07, 0.22, 6), orange, [s * 0.1, 0.22, -0.04], [0, 0, -s * 0.25]);
+      add(ear, new THREE.ConeGeometry(0.04, 0.14, 6), pink, [0, -0.02, 0.02]); add(ear, new THREE.ConeGeometry(0.075, 0.06, 6), dark, [0, 0.1, 0]);
+      ears.push(ear);
+    }
+    tail = new THREE.Group(); tail.position.set(0, 0.5, -0.32); g.add(tail);
+    add(tail, new THREE.CapsuleGeometry(0.12, 0.38, 4, 8), orange, [0, 0.12, -0.2], [-0.9, 0, 0]);
+    add(tail, new THREE.SphereGeometry(0.11, 8, 8), cream, [0, 0.36, -0.36]);
+    for (const [x, z] of [[-0.11, 0.18], [0.11, 0.18], [-0.11, -0.16], [0.11, -0.16]]) {
+      const pivot = new THREE.Group(); pivot.position.set(x, 0.34, z); g.add(pivot);
+      add(pivot, new THREE.CylinderGeometry(0.045, 0.04, 0.16, 6), orange, [0, -0.08, 0]); add(pivot, new THREE.CylinderGeometry(0.042, 0.04, 0.2, 6), sock, [0, -0.25, 0]);
+      legs.push(pivot);
+    }
+  }
+  return { group: g, body, head, tail, legs, ears, mats };
+}
+
+// ============================================================================
+// koban coin — oval gold with a square hole, ~0.5 m tall, facing -z
+// ============================================================================
+export function coinGeometry() {
+  const shape = new THREE.Shape(); shape.absellipse(0, 0, 0.17, 0.25, 0, Math.PI * 2, false, 0);
+  const hole = new THREE.Path(); const h = 0.055; hole.moveTo(-h, -h); hole.lineTo(h, -h); hole.lineTo(h, h); hole.lineTo(-h, h); hole.closePath(); shape.holes.push(hole);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: false, curveSegments: 14 });
+  g.translate(0, 0.25, -0.025);            // y from 0 (its bottom rests on y=0 before the renderer floats it)
+  const gold = paint(g, [1.0, 0.78, 0.22]); // faintly warm; the renderer may swap in a GLOW-ish material
+  const rim = paint(new THREE.TorusGeometry(0.2, 0.018, 4, 24), '#7a5a10', { p: [0, 0.25, 0], s: [0.85, 1.25, 1] }).toNonIndexed();   // extrude is non-indexed
+  return merge([gold, rim]);
 }

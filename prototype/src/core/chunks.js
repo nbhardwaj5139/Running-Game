@@ -2,16 +2,19 @@
 // generate(seed, index) is a pure function so any client can build any chunk
 // independently and out of order.
 //
-// The road is two parallel 3-lane tracks (left = tanuki, right = kitsune).
-// Every lane of a track is visible and reachable — there are no hidden lanes.
+// The road is one six-lane road made of two 3-lane tracks (left = tanuki's
+// home, right = kitsune's home). Hazards are generated per track and every
+// track is always solvable on its own; runners may cross into the other
+// track — and barge each other — but never need to.
 import { mulberry32, mixSeed } from './rng.js';
 
 export const LANES = 3;                              // per track
 export const TRACKS = 2;                             // 0 = left, 1 = right
 export const LANE_W = 2.2;
-export const TRACK_GAP = 2.6;                        // the median between the tracks
+export const TRACK_GAP = 0;                          // no median: the tracks touch, so runners can cross and collide
 export const TRACK_W = LANES * LANE_W;               // 6.6 m
-export const ROAD_HALF = TRACK_W + TRACK_GAP / 2;    // 7.9 m: half of the paved width
+export const LANES_TOTAL = LANES * TRACKS;           // 6 lanes across the whole road (global lane index 0..5)
+export const ROAD_HALF = TRACK_W + TRACK_GAP / 2;    // 6.6 m: half of the paved width
 export const CHUNK_LEN = 36;
 export const BEAT_LEN = 6;                           // one hazard "row" per beat
 export const BEATS = CHUNK_LEN / BEAT_LEN;
@@ -26,9 +29,15 @@ export const seasonOf = (index) => Math.floor(Math.max(0, index) / SEASON_LEN) %
 /** 0..1 progress through the current season section (for blends at the boundary). */
 export const seasonBlend = (index) => (Math.max(0, index) % SEASON_LEN) / SEASON_LEN;
 
-export const laneX = (lane) => (lane - (LANES - 1) / 2) * LANE_W;
-export const trackX = (track) => (track - (TRACKS - 1) / 2) * (TRACK_W + TRACK_GAP);   // -4.6 / +4.6
-export const cellX = (cell) => trackX(cell.track) + laneX(cell.lane);
+export const laneX = (lane) => (lane - (LANES - 1) / 2) * LANE_W;                    // within a track
+export const trackX = (track) => (track - (TRACKS - 1) / 2) * (TRACK_W + TRACK_GAP);   // -3.3 / +3.3
+/** Global lane (0..5) of a track-local lane. */
+export const globalLane = (track, lane) => track * LANES + lane;
+/** Which track a continuous global lane position is on. */
+export const trackOf = (g) => Math.max(0, Math.min(TRACKS - 1, Math.floor((g + 0.5) / LANES)));
+/** x across the road for a (continuous) global lane. */
+export const roadX = (g) => (g - (LANES_TOTAL - 1) / 2) * LANE_W;
+export const cellX = (cell) => roadX(globalLane(cell.track, cell.lane));
 
 // Cell types (the verb that clears them):
 //   stalk  — a solid post: change lane            arch   — something overhead: slide

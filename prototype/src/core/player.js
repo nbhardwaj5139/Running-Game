@@ -1,6 +1,6 @@
 // One runner: fixed-tick, buffered inputs, coyote time, variable-height jump,
 // eased lane changes. Forward motion belongs to the World (both runners share it).
-import { LANES } from './chunks.js';
+import { LANES, LANES_TOTAL, trackOf } from './chunks.js';
 
 export const P = {
   LANE_T: 0.15,
@@ -31,12 +31,12 @@ export function speedAt(distance) {
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
 export class Player {
-  constructor(track = 1) {
-    this.track = track;
-    this.lane = 1;              // 0..2
-    this.laneFromX = 1;         // lane position where the current lane change started
+  constructor(id = 1) {
+    this.id = id;               // 0 = tanuki (home track 0, left), 1 = kitsune (home track 1, right)
+    this.lane = id * LANES + 1; // global lane 0..5; starts in the middle of the home track
+    this.laneFromX = this.lane; // lane position where the current lane change started
     this.laneT = 1;             // 0..1 progress of lane change
-    this.xLane = 1;             // continuous lane position for rendering and proximity
+    this.xLane = this.lane;     // continuous global lane position for rendering and proximity
     this.y = 0; this.vy = 0; this.grounded = true; this.airTime = 0;
     this.jumpHeld = false; this.jumpHeldT = 0; this.jumpDown = false;
     this.action = 'run'; this.slideT = 0;
@@ -58,6 +58,9 @@ export class Player {
 
   get height() { return this.action === 'slide' ? P.SLIDE_H : P.STAND_H; }
   get invulnerable() { return this.dashT > 0 || this.iT > 0; }
+  /** The track this runner is physically on right now (it may have crossed over). */
+  get track() { return trackOf(this.xLane); }
+  get home() { return this.id; }
 
   step(dt) {
     this.tick++;
@@ -65,7 +68,7 @@ export class Player {
     // --- lane change ---
     const bl = this.buffered.lane;
     if (this._fresh(bl) && (this.laneT >= 1 || this.laneT > 0.6)) {
-      const target = Math.max(0, Math.min(LANES - 1, this.lane + bl.dir));
+      const target = Math.max(0, Math.min(LANES_TOTAL - 1, this.lane + bl.dir));
       if (target !== this.lane) { this.laneFromX = this.xLane; this.lane = target; this.laneT = 0; }
       this.buffered.lane = null;
     } else if (bl && !this._fresh(bl)) this.buffered.lane = null;

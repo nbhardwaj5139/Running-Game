@@ -1,125 +1,126 @@
-// Bootstrap: sim + renderer + input + HUD + optional Shared Nerve room.
+// Bootstrap: sim + renderer + input + HUD + mode select (1P with a spirit companion / 2P shared keyboard).
 import { World, W } from './core/world.js';
 import { normalizeSeed } from './core/rng.js';
-import { Renderer } from './render/renderer.js';
-import { NetClient } from './net/client.js';
+import { CHUNK_LEN, biomeOf, seasonOf } from './core/chunks.js';
+import { Renderer, nightAt } from './render/renderer.js';
+import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 
 const q = new URLSearchParams(location.search);
 const seedParam = q.get('seed') || new Date().toISOString().slice(0, 10);   // Seed of the Day by default
 const seed = normalizeSeed(seedParam);
-const room = q.get('room');
-const name = q.get('name') || 'floater-' + Math.floor(Math.random() * 900 + 100);
 const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const $ = (id) => document.getElementById(id);
-const hud = { dist: $('dist'), score: $('score'), photons: $('photons'), nerve: $('nerve'), blink: $('blink'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), room: $('room'), tele: $('tele'), flash: $('flash'), vig: $('vignette'), hint: $('hint') };
+const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
+  secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
+const POWER_NAMES = { shield: '御守 KITSUNE SHIELD', magnet: '狸の磁力 TANUKI MAGNET', dash: '風神 WIND KAMI DASH', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL' };
 
-let world, renderer, net = null, running = false, sharedNerve = 0, players = [];
-let acc = 0, last = performance.now();
+let world, renderer, running = false, mode = 0;
+let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
+try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; } catch { mode = 0; }
 
 function newWorld() {
   world = new World(seed, {
-    solo: !room, sharedNerve: !!room, reducedMotion,
+    reducedMotion, autopilot: mode === 1 ? [0] : [],
     onEvent: (e) => {
       renderer?.onEvent(e);
-      if (e.type === 'nerve.charge') net?.charge(e.amount, e.reason);
-      if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.side > 0 ? '92%' : '8%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
-      if (e.type === 'saccade.telegraph') { hud.tele.className = (e.dir > 0 ? 'right' : 'left') + ' on'; }
-      if (e.type === 'saccade') { hud.tele.className = ''; }
+      if (e.type === 'nearmiss') { hud.flash.style.setProperty('--fx', e.runner ? '75%' : '25%'); hud.flash.style.opacity = 1; setTimeout(() => (hud.flash.style.opacity = 0), 120); }
+      if (e.type === 'power') { hud.power.textContent = POWER_NAMES[e.kind] || e.kind; hud.power.classList.add('on'); powerT = 1.4; }
+      if (e.type === 'section') showSection(e.season, e.biome, true);
       if (e.type === 'death') onDeath(e);
     },
   });
-  net?.attach(world);
   if (renderer) renderer.reset(world);
+  showSection(seasonOf(0), biomeOf(0), false);
+}
+
+function showSection(season, biome, toast) {
+  const s = SEASON_LABEL[season], b = BIOME_LABEL[biome];
+  hud.secJp.textContent = s.jp; hud.secEn.textContent = `${s.en} · ${b.en}`;
+  if (toast) { hud.toastJp.textContent = `${s.jp}　${b.jp}`; hud.toastEn.textContent = `${s.en} — ${b.en}`; hud.toast.classList.add('on'); toastT = 2.6; }
 }
 
 function onDeath(e) {
   running = false;
-  const why = e.reason === 'fall' ? '落ちた — You fell through the road.' : '台風 — The typhoon took you.';
-  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.photons} coins · ${world.saccades} tremors survived`;
-  hud.foot.textContent = 'press R / tap to run again';
+  const why = e.reason === 'fall' ? '落ちた — The road gave way and the typhoon closed in.' : '台風 — The typhoon took the pair.';
+  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers`;
+  hud.modes.style.display = 'flex';
+  hud.foot.textContent = 'pick a mode, or press R / tap to run again in the same mode';
   hud.msg.classList.remove('hidden');
-  net?.death(e.distance); net?.runEnd(world.log, world.summary);
 }
 
-function start() {
-  if (!world.player.alive) newWorld();
+function start(m) {
+  if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
+  if (!mode) return;                          // the start screen waits for a mode
+  if (!world || !world.alive || world.opts.autopilot.length !== (mode === 1 ? 1 : 0)) newWorld();
+  hud.who[0].textContent = mode === 1 ? 'spirit companion' : 'player 2 · WASD';
+  hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
   running = true; hud.msg.classList.add('hidden'); last = performance.now(); acc = 0;
 }
+hud.modes.addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) start(Number(b.dataset.mode)); });
 
 // ---- input --------------------------------------------------------------
-function press(kind, dir) {
-  if (!running) { if (kind !== 'nerve') start(); return; }
-  if (kind === 'nerve') {
-    if (room) { net?.requestSaccade(dir); return; }
-    if (!world.spendNerve(dir)) hud.nerve.animate([{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'none' }], 120);
-    return;
-  }
-  world.input(dir === undefined ? { kind } : { kind, dir });
+// 1P: arrows and WASD both drive the fox (track 1). 2P: WASD = tanuki (track 0), arrows/space = fox (track 1).
+const KEYS = {
+  ArrowLeft: [1, 'lane', -1], ArrowRight: [1, 'lane', 1], ArrowUp: [1, 'jump'], Space: [1, 'jump'], ArrowDown: [1, 'slide'],
+  KeyA: [0, 'lane', -1], KeyD: [0, 'lane', 1], KeyW: [0, 'jump'], KeyS: [0, 'slide'],
+};
+function press(track, kind, dir) {
+  if (!running) { start(); return; }
+  const t = mode === 1 ? 1 : track;
+  world.input(t, dir === undefined ? { kind } : { kind, dir });
 }
-const KEYS = { ArrowLeft: ['lane', -1], KeyA: ['lane', -1], ArrowRight: ['lane', 1], KeyD: ['lane', 1], ArrowUp: ['jump'], KeyW: ['jump'], Space: ['jump'], ArrowDown: ['slide'], KeyS: ['slide'], KeyQ: ['nerve', -1], KeyE: ['nerve', 1] };
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  if (e.code === 'KeyR') { newWorld(); start(); return; }
-  const k = KEYS[e.code]; if (k) { e.preventDefault(); press(k[0], k[1]); } else if (!running) start();
+  if (e.code === 'Digit1' || e.code === 'Digit2') { if (!running) { start(e.code === 'Digit1' ? 1 : 2); } return; }
+  if (e.code === 'KeyR') { if (mode) { newWorld(); start(); } return; }
+  const k = KEYS[e.code]; if (k) { e.preventDefault(); press(k[0], k[1], k[2]); } else if (!running && mode) start();
 });
-addEventListener('keyup', (e) => { if (['ArrowUp', 'KeyW', 'Space'].includes(e.code)) world?.input({ kind: 'jumpRelease' }); });
+addEventListener('keyup', (e) => {
+  if (!world) return;
+  if (['ArrowUp', 'Space'].includes(e.code)) world.input(1, { kind: 'jumpRelease' });
+  if (e.code === 'KeyW') world.input(mode === 1 ? 1 : 0, { kind: 'jumpRelease' });
+});
 let touch = null;
-addEventListener('pointerdown', (e) => { touch = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+addEventListener('pointerdown', (e) => { if (e.target.closest('.mode')) return; touch = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', (e) => {
-  if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; touch = null;
-  if (Math.hypot(dx, dy) < 24) { if (!running) start(); else if (e.clientY < innerHeight * 0.25) press('nerve', e.clientX < innerWidth / 2 ? -1 : 1); else press('jump'); return; }
-  if (Math.abs(dx) > Math.abs(dy)) press('lane', dx > 0 ? 1 : -1); else if (dy < 0) press('jump'); else press('slide');
-  setTimeout(() => world?.input({ kind: 'jumpRelease' }), 160);
+  if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; const track = mode === 2 && touch.x < innerWidth / 2 ? 0 : 1; touch = null;
+  if (!running) { if (mode) start(); return; }
+  if (Math.hypot(dx, dy) < 24) press(track, 'jump');
+  else if (Math.abs(dx) > Math.abs(dy)) press(track, 'lane', dx > 0 ? 1 : -1); else if (dy < 0) press(track, 'jump'); else press(track, 'slide');
+  setTimeout(() => world?.input(track, { kind: 'jumpRelease' }), 160);
 });
-
-// ---- multiplayer --------------------------------------------------------
-async function joinRoom() {
-  net = new NetClient({
-    room, name,
-    onWelcome: (m) => { sharedNerve = m.nerve; players = m.players; hud.hint.textContent = `room ${room} · seed ${m.seed} · you are ${name}`; },
-    onPlayers: (m) => { players = m.players; },
-    onHint: (m) => renderer.rivalHint(m.id, m),
-    onLeave: (m) => renderer.rivalLeave(m.id),
-    onNerve: (v) => { sharedNerve = v; },
-    onSaccade: (dir, atTick, by) => { const mine = by === net.id; world.scheduleSaccade(dir, Math.max(atTick, world.tick + (mine ? 24 : 8)), mine ? 'me' : 'rival'); if (mine) world.player.channelT = 2; },
-    onDenied: () => hud.nerve.animate([{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'none' }], 120),
-    onSurge: (m) => { if (m.target === net.id) world.surgeBlink(m.meters); },
-    onStatus: (s) => { hud.room.innerHTML = `<span class="p">${s}</span>`; },
-  });
-  net.attach(world);
-  try { await net.connect(); } catch (err) { hud.room.textContent = err.message; }
-}
 
 // ---- loop ---------------------------------------------------------------
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  if (running) {
-    acc += dt;
-    while (acc >= W.TICK) { world.step(); acc -= W.TICK; }
-  }
-  net?.update(now);
-  renderer.render(dt, acc / W.TICK);
+  if (running) { acc += dt; while (acc >= W.TICK) { world.step(); acc -= W.TICK; } }
+  renderer.render(dt);
 
-  const p = world.player;
-  hud.dist.textContent = Math.floor(p.distance) + ' m';
+  hud.dist.textContent = Math.floor(world.distance) + ' m';
   hud.score.textContent = Math.floor(world.score);
-  hud.photons.textContent = world.photons;
-  const nerve = room ? sharedNerve : world.nerve;
-  hud.nerve.querySelector('i').style.width = nerve + '%';
-  hud.nerve.classList.toggle('ready', nerve >= W.NERVE_COST);
-  hud.blink.querySelector('i').style.width = Math.max(0, 100 - (world.blink / W.BLINK_MAX) * 100) + '%';
-  const dread = 1 - Math.max(0, world.blink) / W.BLINK_MAX;
+  hud.coins.textContent = world.coins;
+  hud.storm.querySelector('i').style.width = Math.max(0, 100 - (world.storm / W.STORM_MAX) * 100) + '%';
+  const dread = 1 - Math.max(0, world.storm) / W.STORM_MAX;
   hud.vig.style.boxShadow = `inset 0 0 ${40 + dread * 220}px ${dread * 60}px rgba(5,0,2,${0.15 + dread * 0.7})`;
-  if (room) hud.room.innerHTML = `<span class="p">${players.length} on the road</span> · ${net?.connected ? Math.round(net.rtt) + ' ms' : 'offline'}`;
+  hud.x2.classList.toggle('on', world.x2T > 0);
+  for (const r of world.runners) {
+    const el = hud.runners[r.track];
+    el.querySelector('.shield').classList.toggle('on', r.shield);
+    el.querySelector('.magnet').classList.toggle('on', r.magnetT > 0);
+    el.querySelector('.dash').classList.toggle('on', r.dashT > 0);
+  }
+  if (toastT > 0 && (toastT -= dt) <= 0) hud.toast.classList.remove('on');
+  if (powerT > 0 && (powerT -= dt) <= 0) hud.power.classList.remove('on');
 }
 
 newWorld();
 renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0' });
-hud.hint.textContent = `seed ${seedParam}` + (room ? '' : ' · add ?room=NAME to run this road together');
-if (room) joinRoom();
+hud.hint.textContent = `seed ${seedParam} · Seed of the Day — same road for everyone today`;
+if (q.get('mode')) start(Number(q.get('mode')));
 requestAnimationFrame(frame);
 
 // expose for debugging / headless smoke tests
-globalThis.__vitreous = { get world() { return world; }, get net() { return net; }, renderer, start, press, get running() { return running; } };
+globalThis.__kitsune = { get world() { return world; }, renderer, start, press, get running() { return running; }, get mode() { return mode; } };
+globalThis.__vitreous = globalThis.__kitsune;

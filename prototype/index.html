@@ -2,44 +2,57 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>KITSUNE — 狐 endless run</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Zen+Kaku+Gothic+New:wght@500;700&family=Shippori+Mincho:wght@600&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: dark; --amber: #ffb347; --red: #ff3b4e; --cyan: #7ef0ff; --pink: #ff9fc4; }
-  html, body { margin: 0; height: 100%; background: #0d0a14; overflow: hidden; font-family: "Zen Kaku Gothic New", "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif; color: #f6efe8; -webkit-user-select: none; user-select: none; touch-action: none; }
-  canvas { display: block; }
+  :root { color-scheme: dark; --amber: #ffb347; --red: #ff3b4e; --cyan: #7ef0ff; --pink: #ff9fc4; --ink: #f6efe8; }
+  html, body { margin: 0; height: 100%; background: #0d0a14; overflow: hidden; font-family: "Zen Kaku Gothic New", "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif; color: var(--ink); -webkit-user-select: none; user-select: none; touch-action: none; }
+  canvas { display: block; position: fixed; inset: 0; }
   #hud { position: fixed; inset: 0; pointer-events: none; }
-  .top { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .stat { font-size: 13px; opacity: .85; letter-spacing: .06em; text-transform: uppercase; }
-  .stat b { display: block; font-size: 28px; letter-spacing: 0; line-height: 1; color: #fff; font-weight: 700; text-shadow: 0 0 12px rgba(255,159,196,.7); }
-  .bars { position: absolute; bottom: max(14px, env(safe-area-inset-bottom)); left: 16px; right: 16px; display: grid; gap: 8px; }
-  .bar { height: 8px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; position: relative; }
-  .bar i { position: absolute; inset: 0; width: 0%; transition: width .12s linear; border-radius: 4px; }
-  #nerve i { background: linear-gradient(90deg, #3ab8c9, var(--cyan)); box-shadow: 0 0 10px var(--cyan); }
-  #blink i { background: linear-gradient(90deg, #7a1420, var(--red)); box-shadow: 0 0 10px var(--red); }
-  .bar label { position: absolute; right: 0; top: -16px; font-size: 11px; letter-spacing: .1em; opacity: .7; }
-  #nerve.ready i { animation: pulse .8s ease-in-out infinite alternate; }
-  @keyframes pulse { from { filter: brightness(1) } to { filter: brightness(1.6) } }
-  #vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 0 #000; transition: box-shadow .2s; }
-  #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at var(--fx, 50%) 50%, rgba(255,220,170,.55), transparent 55%); transition: opacity .25s; }
-  #msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; }
-  #msg .card { background: rgba(12,8,20,.74); border: 1px solid rgba(255,159,196,.35); padding: 22px 28px; border-radius: 14px; backdrop-filter: blur(6px); max-width: min(520px, 90vw); }
-  #msg h1 { margin: 0 0 2px; font-size: 40px; letter-spacing: .22em; color: #fff; font-weight: 900; text-shadow: 0 0 18px rgba(255,159,196,.9), 0 0 40px rgba(255,80,140,.5); }
-  #msg h1 small { display:block; font-size: 13px; letter-spacing: .5em; color: var(--pink); font-weight: 500; margin-top: 4px; }
-  #msg p { margin: 6px 0; font-size: 14px; line-height: 1.5; opacity: .9; }
-  #msg .keys { font-size: 12px; opacity: .65; margin-top: 10px; }
-  #msg kbd { border: 1px solid rgba(255,255,255,.25); border-radius: 4px; padding: 1px 6px; font-family: inherit; }
+  .stat { position: absolute; top: 14px; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: .85; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .stat b { display: block; font-size: 28px; letter-spacing: 0; line-height: 1; color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 12px rgba(255,159,196,.7); }
+  #section { position: absolute; top: 60px; left: 0; right: 0; text-align: center; font-size: 12px; letter-spacing: .3em; opacity: .75; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #section b { color: #fff; font-family: "Shippori Mincho", serif; font-size: 16px; letter-spacing: .2em; margin-right: 8px; }
+  .bar { position: absolute; left: 16px; right: 16px; height: 6px; background: rgba(255,255,255,.12); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; transition: width .08s linear; }
+  .bar label { position: absolute; top: -18px; left: 0; font-size: 11px; letter-spacing: .25em; opacity: .8; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #storm { bottom: 16px; } #storm i { background: linear-gradient(90deg, var(--red), #ff9a3c); box-shadow: 0 0 10px var(--red); }
+  .runner { position: absolute; bottom: 44px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; letter-spacing: .12em; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .runner.l { left: 16px; align-items: flex-start; } .runner.r { right: 16px; align-items: flex-end; }
+  .runner .name { font-family: "Shippori Mincho", serif; font-size: 14px; opacity: .85; }
+  .runner .name span { font-size: 11px; opacity: .7; margin-left: 6px; font-family: inherit; }
+  .chips { display: flex; gap: 6px; }
+  .chip { padding: 3px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); display: none; }
+  .chip.on { display: inline-block; }
+  .chip.shield { border-color: var(--cyan); color: var(--cyan); } .chip.magnet { border-color: #8fb8ff; color: #8fb8ff; } .chip.dash { border-color: #b8ff8f; color: #b8ff8f; }
+  #x2 { position: absolute; top: 14px; left: 50%; transform: translateX(-50%) translateY(56px); color: #ffd23f; font-weight: 900; font-size: 18px; letter-spacing: .1em; text-shadow: 0 0 14px rgba(255,210,63,.8); display: none; }
+  #x2.on { display: block; }
+  #toast { position: absolute; top: 30%; left: 0; right: 0; text-align: center; pointer-events: none; opacity: 0; transition: opacity .5s; }
+  #toast b { display: block; font-family: "Shippori Mincho", serif; font-size: 64px; letter-spacing: .3em; color: #fff; text-shadow: 0 0 30px rgba(255,255,255,.6), 0 2px 6px rgba(0,0,0,.6); }
+  #toast span { font-size: 14px; letter-spacing: .4em; text-transform: uppercase; opacity: .85; }
+  #toast.on { opacity: 1; }
+  #power { position: absolute; top: 44%; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 700; letter-spacing: .2em; color: #fff; text-shadow: 0 0 16px rgba(126,240,255,.9); opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #power.on { opacity: 1; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle at var(--fx, 50%) 60%, rgba(255,255,255,.35), transparent 40%); transition: opacity .12s; }
+  #vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px 20px rgba(5,0,2,.35); }
+  #msg { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
   #msg.hidden { display: none; }
-  #room { font-size: 12px; opacity: .75; text-align: right; }
-  #room .p { color: var(--cyan); }
-  #tele { position: absolute; top: 0; bottom: 0; width: 18%; pointer-events: none; opacity: 0; transition: opacity .1s; }
-  #tele.left { left: 0; background: linear-gradient(90deg, rgba(255,120,80,.6), transparent); }
-  #tele.right { right: 0; background: linear-gradient(270deg, rgba(255,120,80,.6), transparent); }
-  #tele.on { opacity: 1; }
-  .hint { position: absolute; bottom: 46px; left: 0; right: 0; text-align: center; font-size: 11px; opacity: .45; letter-spacing: .12em; }
-  @media (max-width: 640px) { .stat b { font-size: 22px } #msg h1 { font-size: 24px } }
+  #msg .card { pointer-events: auto; background: rgba(12,8,20,.74); border: 1px solid rgba(255,159,196,.35); border-radius: 14px; padding: 26px 34px; max-width: 640px; text-align: center; backdrop-filter: blur(8px); }
+  #msg h1 { margin: 0 0 2px; font-size: 44px; letter-spacing: .22em; color: #fff; font-weight: 900; text-shadow: 0 0 18px rgba(255,159,196,.9), 0 0 40px rgba(255,80,140,.5); }
+  #msg h1 small { display: block; font-size: 13px; letter-spacing: .5em; color: var(--pink); font-weight: 500; margin-top: 4px; font-family: "Shippori Mincho", serif; }
+  #msg p { margin: 10px 0; line-height: 1.5; font-size: 14px; }
+  .modes { display: flex; gap: 14px; justify-content: center; margin: 18px 0 10px; }
+  .mode { flex: 1; max-width: 250px; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 14px 12px; background: rgba(255,255,255,.05); cursor: pointer; transition: transform .12s, border-color .12s, background .12s; }
+  .mode:hover, .mode:focus-visible { border-color: var(--amber); background: rgba(255,179,71,.12); transform: translateY(-2px); outline: none; }
+  .mode b { display: block; font-size: 22px; letter-spacing: .12em; margin-bottom: 4px; } .mode small { display: block; font-size: 12px; opacity: .8; line-height: 1.5; }
+  .mode kbd { margin-right: 4px; }
+  .keys { font-size: 12px; opacity: .85; line-height: 2; }
+  kbd { display: inline-block; border: 1px solid rgba(255,255,255,.35); border-radius: 4px; padding: 0 6px; margin: 0 2px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: rgba(255,255,255,.06); }
+  #msgFoot { font-size: 12px; opacity: .7; margin-top: 8px; }
+  #hint { position: absolute; bottom: 30px; left: 0; right: 0; text-align: center; font-size: 11px; letter-spacing: .15em; opacity: .5; }
+  @media (max-width: 700px) { .stat b { font-size: 22px; } #toast b { font-size: 44px; } #msg .card { padding: 18px; margin: 12px; } .modes { flex-direction: column; align-items: stretch; } .mode { max-width: none; } }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/" } }
@@ -47,26 +60,30 @@
 </head>
 <body>
 <div id="hud">
-  <div class="top">
-    <div class="stat">distance<b id="dist">0 m</b></div>
-    <div class="stat" style="text-align:center">score<b id="score">0</b></div>
-    <div class="stat" style="text-align:right">小判 coins<b id="photons">0</b><div id="room"></div></div>
-  </div>
-  <div id="tele"></div>
-  <div id="flash"></div>
-  <div id="vignette"></div>
-  <div class="hint" id="hint"></div>
-  <div class="bars">
-    <div class="bar" id="nerve"><label>気 KI</label><i></i></div>
-    <div class="bar" id="blink"><label>台風 TYPHOON</label><i></i></div>
-  </div>
-  <div id="msg">
-    <div class="card">
-      <h1>KITSUNE<small>狐 · 山から東京へ</small></h1>
-      <p id="msgBody">A fox spirit runs from the mountain shrines down into Tokyo.<br>A typhoon follows. Tremors shift the road under your feet.</p>
-      <p class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall<br><kbd>Q</kbd>/<kbd>E</kbd> spend Ki → tremor left / right &nbsp; <kbd>R</kbd> restart &nbsp; swipe on touch</p>
-      <p class="keys" id="msgFoot">press any key or tap to run</p>
+  <div class="stat" style="left:16px">distance<b id="dist">0 m</b></div>
+  <div class="stat" style="left:50%;transform:translateX(-50%);text-align:center">score<b id="score">0</b></div>
+  <div class="stat" style="right:16px;text-align:right">小判 coins<b id="coins">0</b></div>
+  <div id="section"><b id="secJp">春</b><span id="secEn">Spring · Mountain shrine path</span></div>
+  <div id="x2">×2 DARUMA</div>
+  <div id="toast"><b id="toastJp"></b><span id="toastEn"></span></div>
+  <div id="power"></div>
+  <div class="runner l" id="runner0"><div class="name">狸 TANUKI <span id="who0">spirit companion</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">風 dash</i></div></div>
+  <div class="runner r" id="runner1"><div class="name">狐 KITSUNE <span id="who1">you</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">風 dash</i></div></div>
+  <div class="bar" id="storm"><label>台風 TYPHOON</label><i></i></div>
+  <div id="hint"></div>
+</div>
+<div id="flash"></div>
+<div id="vignette"></div>
+<div id="msg">
+  <div class="card">
+    <h1>KITSUNE<small>狐 · 四季を駆ける</small></h1>
+    <p id="msgBody">A fox spirit and a tanuki run the old road from the mountain shrines through the city, the suburbs and the coast, as the seasons turn.<br>A typhoon follows. Keep the pair ahead of it.</p>
+    <div class="modes" id="modes">
+      <button class="mode" data-mode="1"><b><kbd>1</kbd> 1 PLAYER</b><small>You are the fox. The tanuki spirit runs beside you on its own — its mistakes never cost you.<br>Arrows or WASD · Space jump</small></button>
+      <button class="mode" data-mode="2"><b><kbd>2</kbd> 2 PLAYERS</b><small>Share a keyboard: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> tanuki (left road), arrows fox (right road). Both share one typhoon.</small></button>
     </div>
+    <div class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall &nbsp; <kbd>R</kbd> restart &nbsp; swipe on touch (left half = tanuki, right half = fox in 2P)</div>
+    <div id="msgFoot"></div>
   </div>
 </div>
 <script type="module" src="./src/main.js"></script>

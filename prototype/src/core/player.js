@@ -1,80 +1,76 @@
-// Runner movement: fixed-tick, buffered inputs, coyote time, variable-height
-// jump, eased lane changes, momentum by distance. Pure — no rendering.
-import { WINDOW } from './chunks.js';
+// One runner: fixed-tick, buffered inputs, coyote time, variable-height jump,
+// eased lane changes. Forward motion belongs to the World (both runners share it).
+import { LANES } from './chunks.js';
 
 export const P = {
-  LANE_T: 0.18,
-  GRAVITY: -32,
-  JUMP_V: 11.5,
+  LANE_T: 0.15,
+  GRAVITY: -38,
+  JUMP_V: 10.8,
   JUMP_HOLD_T: 0.18,
   SHORT_HOP_MULT: 0.55,
-  FAST_FALL_V: -18,
-  SLIDE_T: 0.55,
+  FAST_FALL_V: -20,
+  SLIDE_T: 0.5,
   SLIDE_H: 0.45,
   STAND_H: 1.6,
   BUFFER_T: 0.15,
   COYOTE_T: 0.08,
-  STUMBLE_T: 1.2,
-  STUMBLE_MULT: 0.7,
-  CHANNEL_MULT: 1.15,
-  SPEED_MAX: 24,
-  SPEED_BASE: 11,
+  STUMBLE_T: 1.0,
+  STUMBLE_MULT: 0.72,
+  SPEED_MAX: 30,
+  SPEED_BASE: 13,
+  DASH_T: 3.5,            // Wind Kami dash: invulnerable, clears everything in its path
+  MAGNET_T: 10,
+  INVULN_T: 1.2,          // grace after a fall
 };
 
+/** Shared run speed by distance: fast from the first step, 30 m/s by ~2.5 km. */
 export function speedAt(distance) {
-  return Math.min(P.SPEED_MAX, P.SPEED_BASE + 5 * Math.log2(1 + distance / 400));
+  return Math.min(P.SPEED_MAX, P.SPEED_BASE + 6.5 * Math.log2(1 + distance / 350));
 }
 
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
 export class Player {
-  constructor() {
-    this.viewLane = 1;          // 0..2 within the visible window
-    this.laneFromX = 0;         // x where the current lane change started (view space, lane units)
+  constructor(track = 1) {
+    this.track = track;
+    this.lane = 1;              // 0..2
+    this.laneFromX = 1;         // lane position where the current lane change started
     this.laneT = 1;             // 0..1 progress of lane change
-    this.xLane = 1;             // continuous lane position (view space) for rendering and stalk proximity
+    this.xLane = 1;             // continuous lane position for rendering and proximity
     this.y = 0; this.vy = 0; this.grounded = true; this.airTime = 0;
     this.jumpHeld = false; this.jumpHeldT = 0; this.jumpDown = false;
     this.action = 'run'; this.slideT = 0;
-    this.stumbleT = 0; this.knockback = 0;
-    this.distance = 0; this.z = 0;
-    this.speed = speedAt(0);
-    this.channelT = 0;
-    this.alive = true;
+    this.stumbleT = 0;
+    this.z = 0;
+    this.shield = false; this.magnetT = 0; this.dashT = 0; this.iT = 0;
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
   }
 
-  /** evt: {kind:'jump'|'slide'|'lane', dir?, down?} — stamped with the current tick. */
+  /** evt: {kind:'jump'|'slide'|'lane'|'jumpRelease', dir?} — stamped with the current tick. */
   input(evt) {
     if (evt.kind === 'jumpRelease') { this.jumpDown = false; return; }
     if (evt.kind === 'jump') this.jumpDown = true;
-    this.buffered[evt.kind] = { ...evt, tick: this.tick };
+    if (evt.kind in this.buffered) this.buffered[evt.kind] = { ...evt, tick: this.tick };
   }
 
   _fresh(b) { return b && (this.tick - b.tick) / 60 <= P.BUFFER_T; }
 
   get height() { return this.action === 'slide' ? P.SLIDE_H : P.STAND_H; }
+  get invulnerable() { return this.dashT > 0 || this.iT > 0; }
 
-  step(dt, world) {
+  step(dt) {
     this.tick++;
-    if (!this.alive) return;
-
-    let mult = this.stumbleT > 0 ? P.STUMBLE_MULT : 1;
-    if (this.channelT > 0) { mult *= P.CHANNEL_MULT; this.channelT -= dt; }
-    this.speed = speedAt(this.distance) * mult;
-    this.distance += this.speed * dt;
-    this.z = this.distance;
 
     // --- lane change ---
     const bl = this.buffered.lane;
     if (this._fresh(bl) && (this.laneT >= 1 || this.laneT > 0.6)) {
-      const target = Math.max(0, Math.min(WINDOW - 1, this.viewLane + bl.dir));
-      if (target !== this.viewLane) { this.laneFromX = this.xLane; this.viewLane = target; this.laneT = 0; }
+      const target = Math.max(0, Math.min(LANES - 1, this.lane + bl.dir));
+      if (target !== this.lane) { this.laneFromX = this.xLane; this.lane = target; this.laneT = 0; }
       this.buffered.lane = null;
     } else if (bl && !this._fresh(bl)) this.buffered.lane = null;
     this.laneT = Math.min(1, this.laneT + dt / P.LANE_T);
-    this.xLane = this.laneFromX + (this.viewLane - this.laneFromX) * easeOutCubic(this.laneT);
+    this.xLane = this.laneFromX + (this.lane - this.laneFromX) * easeOutCubic(this.laneT);
 
     // --- jump ---
     const bj = this.buffered.jump;
@@ -99,20 +95,20 @@ export class Player {
     // --- slide / fast-fall ---
     const bs = this.buffered.slide;
     if (this._fresh(bs)) {
-      if (!this.grounded) { this.vy = P.FAST_FALL_V; }
+      if (!this.grounded) this.vy = P.FAST_FALL_V;
       else { this.action = 'slide'; this.slideT = P.SLIDE_T; }
       this.buffered.slide = null;
     } else if (bs && !this._fresh(bs)) this.buffered.slide = null;
     if (this.action === 'slide') { this.slideT -= dt; if (this.slideT <= 0) this.action = 'run'; }
 
     this.stumbleT = Math.max(0, this.stumbleT - dt);
+    this.magnetT = Math.max(0, this.magnetT - dt);
+    this.dashT = Math.max(0, this.dashT - dt);
+    this.iT = Math.max(0, this.iT - dt);
   }
 
-  stumble() {
-    this.stumbleT = P.STUMBLE_T;
-    if (this.action === 'slide') this.action = 'run';
-  }
+  stumble() { this.stumbleT = P.STUMBLE_T; if (this.action === 'slide') this.action = 'run'; }
 
-  /** Continuous world-lane position (for proximity tests) given the current window offset. */
-  worldX(window) { return this.xLane + window; }
+  /** After a fall: back on the road in the same lane, briefly untouchable. */
+  respawn() { this.y = 0; this.vy = 0; this.grounded = true; this.action = 'run'; this.iT = P.INVULN_T; this.stumbleT = P.STUMBLE_T; }
 }

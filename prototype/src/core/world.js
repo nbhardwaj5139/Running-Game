@@ -1,243 +1,207 @@
-// The simulation: chunk pool + runner + the Blink + saccades + scoring.
-// Deterministic given (seed, ordered events). No rendering here.
-import { ChunkPool, LANES, WINDOW, BLOCKING } from './chunks.js';
-import { Player } from './player.js';
-import { mulberry32, mixSeed } from './rng.js';
+// The simulation: chunk pool + two runners + the typhoon + powers + scoring.
+// Deterministic given (seed, ordered inputs). No rendering here.
+import { ChunkPool, LANES, TRACKS, BLOCKING, rollerLaneAt, biomeOf, seasonOf, CHUNK_LEN } from './chunks.js';
+import { Player, P, speedAt } from './player.js';
+import { autopilot } from './autopilot.js';
 
 export const W = {
   TICK: 1 / 60,
-  BLINK_START: 30,          // metres of margin behind the runner
-  BLINK_MAX: 34,
-  BLINK_RECOVER: 0.6,       // m/s regained while running clean
-  BLINK_DRIFT: 0.35,        // m/s lost at full difficulty (pressure rises with distance)
-  BLINK_STUMBLE: 8,
-  BLINK_STALK: 14,
-  BLINK_PHOTON: 0.35,
-  SACCADE_TELEGRAPH: 0.4,   // s from warning to shift (spender); rivals get 0.25
-  SACCADE_TELEGRAPH_RIVAL: 0.25,
-  SACCADE_MIN_GAP: 12, SACCADE_MAX_GAP: 25,   // solo auto-saccade interval (s), shrinks with distance
-  NERVE_MAX: 100, NERVE_COST: 40,
-  NERVE_NEAR_MISS: 5, NERVE_PHOTON: 2, NERVE_LUMEN: 25,
-  SCORE_PHOTON: 10, SCORE_NEAR_MISS: 25, SCORE_PER_M: 1,
+  STORM_START: 30,          // metres of margin between the runners and the typhoon
+  STORM_MAX: 34,
+  STORM_RECOVER: 0.6,       // m/s regained while running clean
+  STORM_DRIFT: 0.45,        // m/s lost at full pressure (pressure rises with distance)
+  STORM_STUMBLE: 7,
+  STORM_STALK: 11,
+  STORM_FALL: 14,
+  STORM_COIN: 0.25,
+  STORM_HEAL: 14,
+  SCORE_COIN: 10, SCORE_NEAR_MISS: 25, SCORE_CLEAR: 5, SCORE_PER_M: 1,
+  X2_T: 12,
   CELL_DEPTH: 1.2, GAP_DEPTH: 3.0,
-  STALK_PROX: 0.42,         // in lane units: how close (continuous) counts as hitting a stalk
+  STALK_PROX: 0.42,         // lane units: how close (continuous) counts as hitting a post
+  ROLLER_PROX: 0.6,
 };
 
 export class World {
-  /**
-   * @param {number} seed uint32
-   * @param {object} opts { onEvent(evt), solo: boolean (auto-saccades), reducedMotion }
-   */
+  /** @param {number} seed uint32  @param {object} opts { onEvent(evt), invincible } */
   constructor(seed, opts = {}) {
-    this.seed = seed;
-    this.opts = opts;
-    this.rng = mulberry32(mixSeed(seed, 0x5acc)); // runtime rng (solo saccade timing only)
-    this.player = new Player();
+    this.seed = seed; this.opts = opts;
+    this.runners = [new Player(0), new Player(1)];
     this.pool = new ChunkPool(seed, { ahead: 6, behind: 1, onRecycle: (o, n) => this._emit({ type: 'recycle', old: o, fresh: n }) });
-    this.window = 1;              // world lane of the leftmost visible lane (0..2)
-    this.blink = W.BLINK_START;   // metres of margin
-    this.nerve = 0;
-    this.score = 0; this.photons = 0; this.streak = 0;
+    this.distance = 0; this.speed = speedAt(0);
+    this.storm = W.STORM_START;
+    this.score = 0; this.coins = 0; this.streak = 0; this.x2T = 0; this.powers = 0;
     this.tick = 0; this.time = 0;
-    this.pending = null;          // { dir, atTick, by }
-    this.nextAutoSaccade = opts.solo === false ? Infinity : 8;
-    this.saccades = 0;
-    this.deathReason = null;
-    this.log = [];                // event log for replay/validation
-    this.resolved = new Set();    // cells already evaluated (chunkIndex:z:lane)
-    this._lastStalkLane = 1;
+    this.alive = true; this.deathReason = null;
+    this.log = [];                // inputs for replay/validation
+    this.resolved = new Set();    // cells already evaluated
+    this.section = { biome: biomeOf(0), season: seasonOf(0) };
   }
+
+  /** The kitsune (right track) — kept for HUD/debug convenience. */
+  get player() { return this.runners[1]; }
+  get chunkIndex() { return Math.floor(this.distance / CHUNK_LEN); }
 
   _emit(evt) { if (this.opts.onEvent) this.opts.onEvent(evt); }
+  /** The auto-piloted companion is a spirit: its mistakes never cost the pair. */
+  _isAuto(p) { return !!this.opts.autopilot?.includes(p.track); }
 
-  /** Local input; also logged. */
-  input(evt) { this.log.push({ t: this.tick, i: evt }); this.player.input(evt); }
-
-  /** Schedule a saccade. `atTick` is absolute sim tick; null => now + telegraph. */
-  scheduleSaccade(dir, atTick = null, by = 'eye') {
-    const lead = by === 'me' ? W.SACCADE_TELEGRAPH : W.SACCADE_TELEGRAPH_RIVAL;
-    const t = atTick ?? this.tick + Math.round(lead / W.TICK);
-    // clamp the direction so the window stays on the retina
-    const clamped = this.window + dir < 0 ? 1 : this.window + dir > LANES - WINDOW ? -1 : dir;
-    this.pending = { dir: clamped, atTick: Math.max(t, this.tick + 1), by };
-    this.log.push({ t: this.tick, s: { dir: clamped, at: this.pending.atTick, by } });
-    this._emit({ type: 'saccade.telegraph', dir: clamped, inTicks: this.pending.atTick - this.tick, by });
-  }
-
-  /** Try to spend shared/solo nerve on a saccade. Returns true if accepted (solo mode). */
-  spendNerve(dir) {
-    if (this.nerve < W.NERVE_COST || this.pending) return false;
-    this.nerve -= W.NERVE_COST;
-    this.scheduleSaccade(dir, null, 'me');
-    this.player.channelT = Math.max(this.player.channelT, 2); // the eye "looks toward" the spender
-    return true;
-  }
+  /** Local input for one runner; also logged. */
+  input(track, evt) { this.log.push({ t: this.tick, i: { ...evt, track } }); this.runners[track].input(evt); }
 
   step() {
-    if (!this.player.alive) return;
+    if (!this.alive) return;
     const dt = W.TICK;
     this.tick++; this.time += dt;
-    const p = this.player;
-    const prevZ = p.z;
-    p.step(dt, this);
-    this.score += (p.z - prevZ) * W.SCORE_PER_M;
 
-    // --- saccades ---
-    if (this.pending && this.tick >= this.pending.atTick) {
-      this.window += this.pending.dir;
-      this.saccades++;
-      this._emit({ type: 'saccade', dir: this.pending.dir, window: this.window, by: this.pending.by });
-      this.pending = null;
-    }
-    if (this.time >= this.nextAutoSaccade && !this.pending) {
-      const dir = this.rng.chance(0.5) ? -1 : 1;
-      this.scheduleSaccade(dir, null, 'eye');
-      const shrink = Math.min(1, p.distance / 3000);
-      const gap = W.SACCADE_MAX_GAP - (W.SACCADE_MAX_GAP - W.SACCADE_MIN_GAP) * shrink;
-      this.nextAutoSaccade = this.time + gap * (0.8 + 0.4 * this.rng());
-    }
+    // --- shared forward motion: the pair runs together, a stumble slows both ---
+    const mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
+    this.speed = speedAt(this.distance) * mult;
+    const prevZ = this.distance;
+    this.distance += this.speed * dt;
+    this.score += (this.distance - prevZ) * W.SCORE_PER_M * (this.x2T > 0 ? 2 : 1);
+    this.x2T = Math.max(0, this.x2T - dt);
+    for (const r of this.runners) { r.z = this.distance; if (this.opts.autopilot?.includes(r.track)) autopilot(this, r); r.step(dt); }
+
+    // --- sections ---
+    const idx = this.chunkIndex; const biome = biomeOf(idx), season = seasonOf(idx);
+    if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, index: idx }); }
 
     // --- chunks ---
-    this.pool.update(p.z);
+    this.pool.update(this.distance);
 
-    // --- collisions: evaluate every cell whose z we crossed this tick ---
-    const worldLane = p.viewLane + this.window;
-    const worldX = p.worldX(this.window);
-    for (const c of this.pool.live) {
-      if (c.z0 > p.z + 4 || c.z0 + c.length < prevZ - 4) continue;
-      for (const cell of c.cells) {
-        const depth = cell.type === 'gap' ? W.GAP_DEPTH : cell.type === 'channel' ? cell.len : W.CELL_DEPTH;
-        const zc = cell.z;
-        const front = cell.type === 'channel' ? zc : zc - depth / 2;
-        const back = cell.type === 'channel' ? zc + depth : zc + depth / 2;
-        // stalks are checked continuously while overlapping; everything else once at the centre
-        if (cell.type === 'stalk') {
-          const key = `${c.index}:${cell.z}:${cell.lane}`;
+    // --- collisions per runner over its own track ---
+    for (const p of this.runners) {
+      for (const c of this.pool.live) {
+        if (c.z0 > p.z + 4 || c.z0 + c.length < prevZ - 4) continue;
+        for (const cell of c.cells) {
+          if (cell.track !== p.track) continue;
+          const key = `${c.index}:${cell.z}:${cell.lane}:${cell.type}`;
           if (this.resolved.has(key)) continue;
-          if (p.z >= front && prevZ <= back) {
-            // mid-lane-change the hitbox is a little wider: you clip the stalk with your shoulder
-            if (Math.abs(worldX - cell.lane) < W.STALK_PROX + (p.laneT < 1 ? 0.15 : 0)) {
-              this.resolved.add(key);
-              this._hitStalk(cell);
-            } else if (p.z >= zc) {
-              this.resolved.add(key);
-              if (Math.abs(worldLane - cell.lane) === 1 && p.stumbleT === 0) this._nearMiss(cell, worldLane);
+          const zc = cell.z;
+          if (cell.type === 'stalk' || cell.type === 'wide' || cell.type === 'roller') {
+            // solids are checked continuously while overlapping (you can clip them mid lane-change)
+            const front = zc - W.CELL_DEPTH / 2, back = zc + W.CELL_DEPTH / 2;
+            if (p.z >= front && prevZ <= back) {
+              let hit = false;
+              if (cell.type === 'stalk') hit = Math.abs(p.xLane - cell.lane) < W.STALK_PROX + (p.laneT < 1 ? 0.15 : 0);
+              else if (cell.type === 'wide') hit = p.xLane > cell.lane - 0.5 && p.xLane < cell.lane + 1.5;
+              else hit = Math.abs(p.xLane - rollerLaneAt(cell, this.tick)) < W.ROLLER_PROX;
+              if (hit) { this.resolved.add(key); this._hitSolid(cell, p); }
+              else if (p.z >= zc) {
+                this.resolved.add(key);
+                if (cell.type === 'stalk' && Math.abs(p.lane - cell.lane) === 1 && p.stumbleT === 0) this._nearMiss(cell, p);
+                else this._clean(cell, p, cell.type !== 'stalk');
+              }
             }
-          }
-          continue;
-        }
-        const key = `${c.index}:${cell.z}:${cell.lane}`;
-        if (this.resolved.has(key)) continue;
-        if (cell.type === 'channel') {
-          if (p.z >= front && p.z <= back && worldLane === cell.lane && p.grounded && p.y === 0) {
-            p.channelT = Math.max(p.channelT, 0.2); // refreshed every tick while riding
-            this.score += 1; // x2 distance score while on it
-          }
-          if (p.z > back) this.resolved.add(key);
-          continue;
-        }
-        if (prevZ < zc && p.z >= zc) {
-          this.resolved.add(key);
-          if (worldLane !== cell.lane) {
-            if (cell.type === 'gap' && Math.abs(worldLane - cell.lane) === 1 && p.stumbleT === 0 && p.y === 0) this._nearMiss(cell, worldLane);
             continue;
           }
-          this._resolveCell(cell, p);
+          if (prevZ < zc && p.z >= zc) {
+            this.resolved.add(key);
+            const onLane = Math.abs(p.xLane - cell.lane) < 0.5;   // continuous: where the body actually is
+            if (cell.type === 'photon') { if (onLane || p.magnetT > 0) this._coin(cell, p); continue; }
+            if (cell.type === 'power') { if (onLane || p.magnetT > 0) this._power(cell, p); continue; }
+            if (!onLane) {
+              if (cell.type === 'gap' && Math.abs(p.lane - cell.lane) === 1 && p.stumbleT === 0 && p.y === 0) this._nearMiss(cell, p);
+              continue;
+            }
+            this._resolveCell(cell, p);
+          }
         }
       }
     }
 
-    // --- the Blink ---
-    const pressure = W.BLINK_DRIFT * Math.min(1, p.distance / 2500);
-    this.blink = Math.min(W.BLINK_MAX, this.blink + (p.stumbleT > 0 ? 0 : W.BLINK_RECOVER) * dt - pressure * dt);
-    if (this.blink <= 0) this._die('blink');
+    // --- the typhoon ---
+    const pressure = W.STORM_DRIFT * Math.min(1, this.distance / 2500);
+    const clean = this.runners.every(r => r.stumbleT === 0);
+    this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? W.STORM_RECOVER : 0) * dt - pressure * dt);
+    if (this.storm <= 0) this._die('storm');
   }
 
   _resolveCell(cell, p) {
+    if (p.dashT > 0) { this._clean(cell, p, true); return; }
     switch (cell.type) {
-      case 'arch':
-        if (p.action === 'slide') this._clean(cell); else this._stumble(cell, W.BLINK_STUMBLE);
-        break;
-      case 'drusen':
-        if (p.y > 0.5) this._clean(cell); else this._stumble(cell, W.BLINK_STUMBLE);
-        break;
-      case 'gap':
-        if (p.y > 0.25) this._clean(cell); else this._die('fall', cell);
-        break;
-      case 'photon':
-        if (cell.hi && p.y <= 0.8) break;
-        this.photons++; this.streak++;
-        this.score += W.SCORE_PHOTON * (1 + Math.floor(this.streak / 10) * 0.5);
-        this._addNerve(W.NERVE_PHOTON, 'photon');
-        this.blink = Math.min(W.BLINK_MAX, this.blink + W.BLINK_PHOTON);
-        this._emit({ type: 'photon', cell, streak: this.streak });
-        break;
-      case 'lumen':
-        this._addNerve(W.NERVE_LUMEN, 'lumen');
-        this._emit({ type: 'lumen', cell });
-        break;
+      case 'arch': if (p.action === 'slide' || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
+      case 'drusen': if (p.y > 0.5 || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
+      case 'gap': if (p.y > 0.25 || p.iT > 0) this._clean(cell, p, true); else this._fall(cell, p); break;
     }
   }
 
-  /** All nerve gains go through here; in Shared Nerve the host forwards the delta to the server. */
-  _addNerve(n, reason) {
-    if (this.opts.sharedNerve) { this._emit({ type: 'nerve.charge', amount: n, reason }); return; }
-    this.nerve = Math.min(W.NERVE_MAX, this.nerve + n);
+  _coin(cell, p) {
+    if (cell.hi && p.y <= 0.8 && p.magnetT === 0) return;
+    const n = this.x2T > 0 ? 2 : 1;
+    this.coins += n; this.streak++;
+    this.score += W.SCORE_COIN * n * (1 + Math.floor(this.streak / 10) * 0.5);
+    this.storm = Math.min(W.STORM_MAX, this.storm + W.STORM_COIN);
+    this._emit({ type: 'coin', cell, runner: p.track, streak: this.streak, n });
   }
 
-  _clean(cell) { this.score += 5; this._emit({ type: 'clear', cell }); }
+  _power(cell, p) {
+    this.powers++;
+    switch (cell.kind) {
+      case 'shield': p.shield = true; break;
+      case 'magnet': p.magnetT = P.MAGNET_T; break;
+      case 'dash': p.dashT = P.DASH_T; p.stumbleT = 0; break;
+      case 'x2': this.x2T = W.X2_T; break;
+      case 'heal': this.storm = Math.min(W.STORM_MAX, this.storm + W.STORM_HEAL); break;
+    }
+    this._emit({ type: 'power', cell, kind: cell.kind, runner: p.track });
+  }
 
-  _nearMiss(cell, lane) {
-    this._addNerve(W.NERVE_NEAR_MISS, 'nearmiss');
+  _clean(cell, p, scored) { if (scored) this.score += W.SCORE_CLEAR; this._emit({ type: 'clear', cell, runner: p.track }); }
+
+  _nearMiss(cell, p) {
     this.score += W.SCORE_NEAR_MISS;
-    this._emit({ type: 'nearmiss', cell, side: cell.lane > lane ? 1 : -1 });
+    this._emit({ type: 'nearmiss', cell, runner: p.track, side: cell.lane > p.lane ? 1 : -1 });
   }
 
-  _stumble(cell, blinkCost) {
+  /** A crash into an arch/drusen: the shield eats it, otherwise a stumble costs storm margin. */
+  _stumble(cell, p, cost) {
+    if (p.shield) { p.shield = false; this._emit({ type: 'shield', cell, runner: p.track }); return; }
+    p.stumble();
+    if (this._isAuto(p)) { this._emit({ type: 'stumble', cell, runner: p.track, free: true }); return; }
     this.streak = 0;
-    this.player.stumble();
-    this.blink -= blinkCost;
-    this._emit({ type: 'stumble', cell });
-    if (this.blink <= 0) this._die('blink', cell);
+    this.storm -= cost;
+    this._emit({ type: 'stumble', cell, runner: p.track });
+    if (this.storm <= 0) this._die('storm', cell);
   }
 
-  _hitStalk(cell) {
-    const p = this.player;
-    // clipped it mid-change: bounce back to the lane you came from. Head-on: just stumble.
-    if (p.laneT < 1) {
-      p.viewLane = Math.max(0, Math.min(WINDOW - 1, Math.round(p.laneFromX)));
-      p.laneFromX = p.xLane; p.laneT = 0;
-    }
-    this._stumble(cell, W.BLINK_STALK);
+  _hitSolid(cell, p) {
+    if (p.dashT > 0 || p.iT > 0) { this._clean(cell, p, p.dashT > 0); return; }
+    // clipped it mid-change: bounce back to the lane you came from
+    if (p.laneT < 1) { p.lane = Math.max(0, Math.min(LANES - 1, Math.round(p.laneFromX))); p.laneFromX = p.xLane; p.laneT = 0; }
+    this._stumble(cell, p, W.STORM_STALK);
+  }
+
+  _fall(cell, p) {
+    if (p.shield) { p.shield = false; this._emit({ type: 'shield', cell, runner: p.track }); return; }
+    p.respawn();
+    if (this._isAuto(p)) { this._emit({ type: 'fall', cell, runner: p.track, free: true }); return; }
+    this.streak = 0;
+    this.storm -= W.STORM_FALL;
+    this._emit({ type: 'fall', cell, runner: p.track });
+    if (this.storm <= 0) this._die('fall', cell);
   }
 
   _die(reason, cell = null) {
-    if (!this.player.alive) return;
-    if (this.opts.invincible) { this.blink = Math.max(this.blink, 1); return; }
-    this.player.alive = false;
-    this.deathReason = reason;
-    this._emit({ type: 'death', reason, cell, distance: this.player.distance, score: Math.floor(this.score) });
+    if (!this.alive) return;
+    if (this.opts.invincible) { this.storm = Math.max(this.storm, 1); return; }
+    this.alive = false; this.deathReason = reason;
+    for (const r of this.runners) r.alive = false;
+    this._emit({ type: 'death', reason, cell, distance: this.distance, score: Math.floor(this.score) });
   }
 
-  /** Blink surge from multiplayer ("the eye reflexes toward the last runner"). */
-  surgeBlink(m) { this.log.push({ t: this.tick, b: m }); this.blink -= m; if (this.blink <= 0) this._die('blink'); }
-
   get summary() {
-    return { seed: this.seed, distance: Math.floor(this.player.distance), score: Math.floor(this.score), photons: this.photons, saccades: this.saccades, reason: this.deathReason, ticks: this.tick };
+    return { seed: this.seed, distance: Math.floor(this.distance), score: Math.floor(this.score), coins: this.coins, powers: this.powers, reason: this.deathReason, ticks: this.tick };
   }
 }
 
-/** Replay a run headlessly: used by the server to validate a submitted score. */
-export function replay(seed, log, maxTicks = 60 * 60 * 30, solo = true) {
-  const w = new World(seed, { solo });
+/** Replay a run headlessly from its input log: used to validate a submitted score. */
+export function replay(seed, log, maxTicks = 60 * 60 * 30) {
+  const w = new World(seed);
   let i = 0;
-  while (w.player.alive && w.tick < maxTicks) {
-    while (i < log.length && log[i].t === w.tick) {
-      const e = log[i++];
-      if (e.i) w.player.input(e.i);
-      else if (e.s) { w.pending = { dir: e.s.dir, atTick: e.s.at, by: e.s.by }; w.nextAutoSaccade = Infinity; }
-      else if (e.b) { w.blink -= e.b; if (w.blink <= 0) w._die('blink'); }
-    }
+  while (w.alive && w.tick < maxTicks) {
+    while (i < log.length && log[i].t === w.tick) { const e = log[i++]; if (e.i) w.runners[e.i.track ?? 1].input(e.i); }
     w.step();
   }
   return w.summary;

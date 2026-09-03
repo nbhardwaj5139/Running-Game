@@ -65,10 +65,20 @@ The road is **six lanes** (2.2 m each): lanes 0–2 are the tanuki's home, 3–5
 
 Second tier (design): **Raijin Slow-time** (4 s at 0.6× sim speed), **Tengu Glide** (hold jump to float 2 rows), **Kappa Water-run** (coast: run on the sea lane for 8 s).
 
-### 1.7 The typhoon
+### 1.7 Kaiju encounters
+The last two chunks of every season (72 m before the change) belong to a **kaiju**: it rises far down the road, strides ahead of the pair and throws its signature hazards back at them. Throws are ordinary cells generated through the same grammar (so every row stays solvable) with a `thrown` flag: the renderer flies each one in an arc from the monster's hand and lands it with a dust ring; a **wave** is a full-width shockwave line that every lane must jump. A HUD warning names the monster.
+
+| Season | Kaiju | Throws |
+|---|---|---|
+| Spring | **Daidarabotchi**, the mountain giant | boulders (lane), small rocks (jump), stomp waves |
+| Summer | **Umibōzu**, the sea giant | fishing boats (two lanes), buoys (jump), waves |
+| Autumn | **Gashadokuro**, the starving skeleton | bone spikes (lane), skulls (jump), ribcages (two lanes) |
+| Winter | **Yuki-Oni**, the snow ogre | ice blocks (lane), snowballs (jump), frost waves |
+
+### 1.8 The typhoon
 `storm` starts at 30 m of margin (max 34). Clean running recovers 0.6 m/s; pressure drains up to 0.45 m/s by 2.5 km; a stumble costs 7 m, a stalk 11 m, a fall 14 m and a respawn with 1.2 s grace; each coin returns 0.25 m. The cloud bank descends from the top of the frame with the deficit, rain and lightning rise from 45 %, and death is only at 0. In 1P the companion's hits are free; in 2P both runners share the bar — barging your partner into a wall costs you too.
 
-### 1.8 Progression
+### 1.9 Progression
 Seed of the Day for shared leaderboards, distance/coin milestones unlock cosmetic trails and companion hats, a *Dream Journal* of sections seen (e.g. "winter coast at night"). No timers, revives or loot boxes.
 
 ---

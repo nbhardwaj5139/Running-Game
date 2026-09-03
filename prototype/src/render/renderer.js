@@ -8,11 +8,11 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, LANES, CHUNK_LEN, BIOMES, SEASON_LEN, roadX, cellX, biomeOf, seasonOf, rollerLaneAt } from '../core/chunks.js';
+import { LANE_W, LANES, TRACK_W, CHUNK_LEN, BIOMES, SEASON_LEN, KAIJU, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
-import { MeshPool, InstancePool, compose, radial, canvasTexture, lerp, clamp01 } from './common.js';
+import { MeshPool, InstancePool, compose, radial, canvasTexture, lerp, clamp01, paint, merge, box, cyl, cone, sph, GLOW } from './common.js';
 import { buildObstacles, buildPowers, buildRig, coinGeometry } from './props.js';
 import { getTheme } from './theme.js';
 import { makeSky } from './sky.js';
@@ -54,6 +54,64 @@ function neonTexture(word, color, vertical) {
     if (vertical) [...word].forEach((ch, i) => g.fillText(ch, w / 2, 42 + i * 64)); else g.fillText(word, w / 2, h / 2 + 2);
   });
 }
+
+/** A kaiju built from primitives, ~30 m tall, throwing arm on local -x (toward the road when it stands on the +x side). */
+function kaijuRig(k) {
+  const g = new THREE.Group(); const mat = (c, e = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, emissive: c, emissiveIntensity: e });
+  const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(...k.color).multiplyScalar(3) });
+  const add = (geo, m, p, r = [0, 0, 0], parent = g) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(...p); mesh.rotation.set(...r); parent.add(mesh); return mesh; };
+  const arm = new THREE.Group(); g.add(arm);
+  const eyes = (y, z, r, dx) => { add(new THREE.SphereGeometry(r, 8, 8), eye, [-dx, y, z]); add(new THREE.SphereGeometry(r, 8, 8), eye, [dx, y, z]); };
+  switch (k.id) {
+    case 'daidarabotchi': { const body = mat(0x4a4030), moss = mat(0x3f5a2e);
+      add(new THREE.BoxGeometry(11, 15, 8), body, [0, 17.5, 0]); add(new THREE.SphereGeometry(4.6, 10, 8), body, [0, 28, 0]); add(new THREE.SphereGeometry(4.9, 10, 8), moss, [0, 29.4, 0.6]);
+      add(new THREE.CylinderGeometry(2.3, 2.7, 10, 8), body, [-3.3, 5, 0]); add(new THREE.CylinderGeometry(2.3, 2.7, 10, 8), body, [3.3, 5, 0]);
+      add(new THREE.CylinderGeometry(1.6, 1.4, 12, 8), body, [7, 16, 0]);
+      arm.position.set(-6.8, 23, 0); add(new THREE.CylinderGeometry(1.7, 1.4, 12, 8), body, [0, -6, 0], [0, 0, 0], arm); add(new THREE.DodecahedronGeometry(2.4, 0), mat(0x6e7264), [0, -12.5, 0], [0, 0, 0], arm);
+      eyes(28.4, -4.1, 0.7, 1.5); break; }
+    case 'umibozu': { const body = mat(0x0b0f1a), rim = mat(0x1a2a44, 0.4);
+      add(new THREE.ConeGeometry(10.5, 24, 14), body, [0, 12, 0]); add(new THREE.SphereGeometry(8.5, 14, 12), body, [0, 29, 0]);
+      add(new THREE.TorusGeometry(10.5, 0.7, 6, 20), rim, [0, 0.6, 0], [Math.PI / 2, 0, 0]);
+      arm.position.set(-9.5, 20, 0); add(new THREE.CylinderGeometry(1.5, 1.2, 14, 8), body, [0, -7, 0], [0, 0, 0], arm);
+      eyes(30, -7.4, 1.5, 2.8); break; }
+    case 'gashadokuro': { const bone = mat(0xe8e0cc);
+      add(new THREE.SphereGeometry(4.6, 10, 8), bone, [0, 29.5, 0]); add(new THREE.BoxGeometry(5, 2.2, 4.2), bone, [0, 25.6, -0.6]);
+      add(new THREE.CylinderGeometry(0.9, 0.9, 16, 6), bone, [0, 17, 0]);
+      for (let i = 0; i < 4; i++) { add(new THREE.TorusGeometry(4.5 - i * 0.4, 0.5, 6, 14, Math.PI), bone, [0, 22.5 - i * 2.2, 0], [Math.PI / 2, 0, Math.PI]); }
+      add(new THREE.BoxGeometry(7, 3, 4), bone, [0, 9, 0]); add(new THREE.CylinderGeometry(1, 1, 9, 6), bone, [-2.6, 4.5, 0]); add(new THREE.CylinderGeometry(1, 1, 9, 6), bone, [2.6, 4.5, 0]);
+      add(new THREE.CylinderGeometry(0.8, 0.7, 12, 6), bone, [5.6, 19, 0]);
+      arm.position.set(-5.4, 24.5, 0); add(new THREE.CylinderGeometry(0.8, 0.7, 12, 6), bone, [0, -6, 0], [0, 0, 0], arm); add(new THREE.SphereGeometry(1.6, 8, 6), bone, [0, -12.4, 0], [0, 0, 0], arm);
+      eyes(30, -4.2, 0.9, 1.6); break; }
+    default: { const ice = mat(0xbfe6ff, 0.15), dark = mat(0x5a7ea0);
+      add(new THREE.BoxGeometry(10.5, 14, 7.5), ice, [0, 15, 0]); add(new THREE.BoxGeometry(6.5, 6.5, 6.5), ice, [0, 25.5, 0]);
+      add(new THREE.ConeGeometry(1.3, 4.5, 6), dark, [-2.2, 31, 0], [0, 0, 0.25]); add(new THREE.ConeGeometry(1.3, 4.5, 6), dark, [2.2, 31, 0], [0, 0, -0.25]);
+      for (const x of [-6.5, 6.5]) add(new THREE.ConeGeometry(2.2, 6, 6), ice, [x, 23, 0], [0, 0, x < 0 ? 0.6 : -0.6]);
+      add(new THREE.CylinderGeometry(2.2, 2.6, 9, 8), ice, [-3.2, 4.5, 0]); add(new THREE.CylinderGeometry(2.2, 2.6, 9, 8), ice, [3.2, 4.5, 0]);
+      add(new THREE.CylinderGeometry(1.6, 1.4, 12, 8), ice, [6.8, 15, 0]);
+      arm.position.set(-6.8, 22, 0); add(new THREE.CylinderGeometry(1.7, 1.4, 12, 8), ice, [0, -6, 0], [0, 0, 0], arm); add(new THREE.BoxGeometry(3.4, 3.4, 3.4), mat(0xd8f4ff, 0.5), [0, -12.5, 0], [0, 0, 0], arm);
+      eyes(26.2, -3.4, 0.8, 1.6); }
+  }
+  g.visible = false;
+  return { group: g, arm, k };
+}
+/** What each kaiju throws, as pooled geometry: { type: { geo, mat, scale } }. */
+function kaijuProps(obstacles) {
+  const bone = [0.91, 0.88, 0.8], ice = [0.75, 0.9, 1.0];
+  const boneSpike = merge([paint(cone(0.55, 2.6, 7), bone, { p: [0, 1.3, 0] }), paint(sph(0.5, 8), bone, { p: [0, 0.2, 0] })]);
+  const skull = merge([paint(sph(0.42, 10), bone, { p: [0, 0.42, 0] }), paint(box(0.5, 0.2, 0.4), bone, { p: [0, 0.12, 0.1] })]);
+  const ribs = merge([0, 1, 2, 3].map(i => paint(new THREE.TorusGeometry(1.6 - i * 0.2, 0.14, 6, 14, Math.PI), bone, { p: [0, 1.9 - i * 0.45, 0], r: [Math.PI / 2, 0, Math.PI] })).concat([paint(box(4.3, 0.3, 0.3), bone, { p: [0, 0.15, 0] })]));
+  const iceBlock = merge([paint(box(1.4, 2.2, 1.2), ice, { p: [0, 1.1, 0], r: [0, 0.4, 0] }), paint(box(0.9, 1.2, 0.9), [0.9, 0.97, 1.0], { p: [0.3, 2.3, 0.2], r: [0, 0.9, 0.2] })]);
+  const snowball = paint(sph(0.5, 10), [0.96, 0.97, 1.0], { p: [0, 0.5, 0], s: [1.2, 1, 1.2] });
+  const boulder = obstacles.mountain?.drusen?.[0], boat = obstacles.coast?.wide?.[0], buoy = obstacles.coast?.drusen?.[2] || obstacles.coast?.drusen?.[0];
+  const P = (geo, mat, scale = 1) => ({ geo, mat, scale });
+  return {
+    daidarabotchi: { stalk: boulder && P(boulder.geo, boulder.mat, 2.6), drusen: boulder && P(boulder.geo, boulder.mat, 1.1) },
+    umibozu: { wide: boat && P(boat.geo, boat.mat, 1), drusen: buoy && P(buoy.geo, buoy.mat, 1) },
+    gashadokuro: { stalk: P(boneSpike, PAINT_REF, 1), drusen: P(skull, PAINT_REF, 1), wide: P(ribs, PAINT_REF, 1) },
+    yukioni: { stalk: P(iceBlock, PAINT_REF, 1), drusen: P(snowball, PAINT_REF, 1) },
+  };
+}
+const PAINT_REF = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
 
 export class Renderer {
   constructor(canvasParent, world, opts = {}) {
@@ -156,6 +214,12 @@ export class Renderer {
       m.userData.neon = true; return m;
     });
     this.grass = makeGrass(this.root); this.flowers = makeFlowers(this.root);
+    // kaiju: thrown props, wave lines (one per monster colour), rigs
+    this.kaijuProps = kaijuProps(this.obstacles);
+    const waveGeo = merge([paint(box(TRACK_W, 0.32, 0.6), [1, 1, 1], { p: [0, 0.16, 0] }), paint(box(TRACK_W * 0.9, 0.32, 0.2), [0.8, 0.8, 0.8], { p: [0, 0.45, 0] })]);
+    for (const k of KAIJU) this.pool(`wave:${k.id}`, waveGeo, new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(...k.color).multiplyScalar(1.15), transparent: true, opacity: 0.85 }));
+    this.kaijuRigs = {}; for (const k of KAIJU) { const r = kaijuRig(k); this.stage.add(r.group); this.kaijuRigs[k.id] = r; }
+    this.kaijuState = { id: null, y: -42, throwT: 9, stompT: 0, side: 1 };
   }
 
   _obstacleVariant(biome, type, v) {
@@ -170,7 +234,7 @@ export class Renderer {
     const night = nightAt(this.world.distance);
     const floor = this.floorPool.take(); floor.position.set(0, 0, c.z0 + CHUNK_LEN / 2);
     const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = snowAt(c.index);
-    const v = { floor, meshes: [], coins: [], powers: [], rollers: [], lights: [] };
+    const v = { floor, meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
 
     for (const cell of c.cells) {
@@ -187,13 +251,21 @@ export class Renderer {
         v.meshes.push(m, ring); v.powers.push({ m, ring, cell, z: cell.z, x }); light(x, cell.z, 0.8, 0.5, [pw.ring.r, pw.ring.g, pw.ring.b]);
         continue;
       }
-      const variant = this._obstacleVariant(biome, cell.type, cell.v ?? 0);
+      if (cell.type === 'wave') {
+        const m = this.pools[`wave:${cell.by || 'daidarabotchi'}`].take(); m.userData.cell = cell;
+        m.position.set(trackX(cell.track), 0, cell.z); m.scale.set(1, 0.001, 1); v.meshes.push(m);
+        v.thrown.push({ m, cell, x: trackX(cell.track), start: null, landed: false, wave: true }); continue;
+      }
+      const kp = cell.thrown ? this.kaijuProps[cell.by]?.[cell.type] : null;
+      const variant = kp ? { geo: kp.geo, mat: kp.mat, name: 'thrown' } : this._obstacleVariant(biome, cell.type, cell.v ?? 0);
       if (!variant) continue;
-      const key = `${biome}:${cell.type}:${cell.v % 8}:${variant.name}`;
+      const key = kp ? `kaiju:${cell.by}:${cell.type}` : `${biome}:${cell.type}:${cell.v % 8}:${variant.name}`;
       const m = this.pool(key, variant.geo, variant.mat).take(); m.userData.cell = cell;
       const ox = cell.type === 'wide' ? x + LANE_W / 2 : x;
       m.position.set(ox, cell.type === 'gap' ? 0.02 : 0, cell.z); m.rotation.y = cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;
+      if (kp) m.scale.setScalar(kp.scale);
       v.meshes.push(m);
+      if (cell.thrown) { m.visible = false; v.thrown.push({ m, cell, x: ox, start: null, landed: false, scale: kp?.scale ?? 1 }); }
       if (variant.glow) { const g = this.pool(key + ':glow', variant.glow.geo, variant.glow.mat).take(); g.position.copy(m.position); g.rotation.copy(m.rotation); v.meshes.push(g); }
       if (cell.type === 'roller') v.rollers.push({ m, cell });
     }
@@ -315,6 +387,32 @@ export class Renderer {
     for (const v of this.views.values()) {
       for (const pw of v.powers) { pw.m.position.y = 0.55 + 0.12 * Math.sin(this.time * 3 + pw.z); pw.m.rotation.y += dt * 1.6; const k = 1 + 0.12 * Math.sin(this.time * 5 + pw.z); pw.ring.scale.set(k, k, 1); }
       for (const r of v.rollers) { r.m.position.x = roadX(r.cell.track * LANES + rollerLaneAt(r.cell, w.tick)); r.m.rotation.y = r.cell.dir * this.time * 3; }
+    }
+    // ---- kaiju: rises beside the road for the last chunks of a season, stomps, and throws
+    const K = this.kaijuState, kj = w.kaiju;
+    if (kj && kj.id !== K.id) { K.id = kj.id; K.side = kj.side; K.y = -42; K.throwT = 9; }
+    for (const [id, r] of Object.entries(this.kaijuRigs)) {
+      const active = id === K.id;
+      const targetY = active && kj ? 0 : -42;
+      if (active) { K.y += (targetY - K.y) * Math.min(1, dt * 1.1); r.group.visible = K.y > -41; }
+      else r.group.visible = false;
+      if (!r.group.visible) continue;
+      K.stompT += dt; const stomp = Math.abs(Math.sin(K.stompT * 2.8));
+      r.group.position.set(K.side * 7, K.y * 1.4 + stomp * 1.4 - 1.4, 108); r.group.scale.set(K.side * 1.4, 1.4, 1.4); r.group.rotation.y = K.side * 0.5;
+      if (Math.sin(K.stompT * 2.8) < 0 && Math.sin((K.stompT - dt) * 2.8) >= 0) { this.shake = Math.max(this.shake, 0.3 + 0.2 * (1 - dread)); }
+      K.throwT += dt; const swing = K.throwT < 0.55 ? Math.sin((K.throwT / 0.55) * Math.PI) : 0;
+      r.arm.rotation.x = -0.35 - swing * 1.7; r.arm.rotation.z = -0.25;
+      if (!kj) K.id = K.y <= -41 ? null : K.id;
+    }
+    for (const v of this.views.values()) for (const t of v.thrown) {
+      if (t.landed) continue;
+      const lead = w.speed * 1.5 + 8, dz = t.cell.z - w.distance;
+      if (dz > lead) continue;
+      if (!t.start) { t.start = { x: K.side * 2, y: 30, z: w.distance + 100 }; K.throwT = 0; t.m.visible = true; }
+      const p = clamp01(1 - (dz - 4) / (lead - 4));
+      if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); t.m.position.set(t.x, 0, t.cell.z); }
+      else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.x = p * 6 * (t.cell.v % 2 ? 1 : -1); }
+      if (p >= 1) { t.landed = true; t.m.rotation.x = 0; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); this.shock.burst(t.x, t.cell.z, new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5)); this.shake = Math.max(this.shake, 0.25); }
     }
     // shinkansen on the city viaduct
     if (this.train.visible) { this.train.position.z -= 62 * dt; if (this.train.position.z < w.distance - 70) this.train.visible = false; }

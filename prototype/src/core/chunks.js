@@ -45,8 +45,26 @@ export const cellX = (cell) => roadX(globalLane(cell.track, cell.lane));
 //   wide   — blocks two adjacent lanes (lane = left one, span 2): take the third lane
 //   roller — sweeps between lane and lane+dir over `period` ticks: take the lane it never visits, or time it
 //   photon — a coin (hi: floats above a jump)     power  — a pickup {kind}
+//   wave   — a full-width shockwave line thrown by a kaiju: jump (every lane)
 export const BLOCKING = new Set(['stalk', 'gap', 'wide', 'roller']);
-export const ACTION = { arch: 'slide', drusen: 'jump' };
+export const ACTION = { arch: 'slide', drusen: 'jump', wave: 'jump' };
+
+// Kaiju: one per season, appears for the last KAIJU_CHUNKS chunks of a season
+// section and throws its signature hazards onto the road (still solvable rows).
+export const KAIJU_CHUNKS = 2;
+export const KAIJU = [
+  { id: 'daidarabotchi', jp: '大太法師', en: 'Daidarabotchi, the mountain giant', throws: ['stalk', 'drusen', 'wave'], color: [0.9, 0.6, 0.2] },
+  { id: 'umibozu', jp: '海坊主', en: 'Umibōzu, the sea giant', throws: ['wide', 'wave', 'drusen'], color: [0.3, 0.8, 1.0] },
+  { id: 'gashadokuro', jp: 'がしゃどくろ', en: 'Gashadokuro, the starving skeleton', throws: ['stalk', 'drusen', 'wide'], color: [1.0, 0.25, 0.2] },
+  { id: 'yukioni', jp: '雪鬼', en: 'Yuki-Oni, the snow ogre', throws: ['stalk', 'wave', 'drusen'], color: [0.6, 0.9, 1.0] },
+];
+/** The kaiju haunting chunk `index`, or null. Its side of the road alternates per season. */
+export function kaijuOf(index) {
+  const k = index % SEASON_LEN;
+  if (index < SEASON_LEN - KAIJU_CHUNKS || k < SEASON_LEN - KAIJU_CHUNKS) return null;
+  const season = seasonOf(index);
+  return { ...KAIJU[season], season, side: Math.floor(index / SEASON_LEN) % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
+}
 export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal'];
 const POWER_WEIGHTS = [0.26, 0.24, 0.2, 0.15, 0.15];
 export const VARIANTS = 4;                           // visual variants per obstacle type (renderer picks props)
@@ -122,7 +140,7 @@ function weightedPick(rng, items, weights) {
 }
 
 /** One track's worth of rows and cells. Pure in (seed, index, track). */
-function generateTrack(seed, index, track, diff, wave, z0) {
+function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set()) {
   const rng = mulberry32(mixSeed(mixSeed(seed, index), 0x7a + track));
   const cells = [], rows = [];
   const release = wave < TUNING.releaseBelow && index > 2;
@@ -142,9 +160,11 @@ function generateTrack(seed, index, track, diff, wave, z0) {
   const commit = (mask) => {
     for (let l = 0; l < LANES; l++) {
       const t = mask[l]; if (!t) continue;
-      if (t === 'wide') { if (mask.wideLeft === l) cells.push({ z: mask.z, lane: l, track, type: 'wide', span: 2, v: v() }); continue; }
+      const thrown = mask.thrown ? { thrown: true, side: kaiju.side, by: kaiju.id } : {};
+      if (t === 'wave') { if (l === 0) cells.push({ z: mask.z, lane: 0, track, type: 'wave', span: LANES, v: v(), ...thrown }); continue; }
+      if (t === 'wide') { if (mask.wideLeft === l) cells.push({ z: mask.z, lane: l, track, type: 'wide', span: 2, v: v(), ...thrown }); continue; }
       if (t === 'roller') { if (mask.rollerLane === l) cells.push({ z: mask.z, lane: l, track, type: 'roller', dir: mask.rollerDir, period: mask.rollerPeriod, v: v() }); continue; }
-      cells.push({ z: mask.z, lane: l, track, type: t, v: v(), wall: !!mask.wall });
+      cells.push({ z: mask.z, lane: l, track, type: t, v: v(), wall: !!mask.wall, ...thrown });
     }
     rows.push(mask);
     reach = stepReach(mask, reach, prev) || initialReach(mask);   // never null for committed masks; defensive
@@ -156,6 +176,24 @@ function generateTrack(seed, index, track, diff, wave, z0) {
     const breath = b === BEATS - 1;                 // last beat: always clear, so chunks never depend on each other
     const wallTelegraph = wall && b === 2;          // clear beat before the wall
     if (index === 0 || release || breath || wallTelegraph) { const m = empty(); m.z = zb; commit(m); continue; }
+
+    if (kaiju) {
+      // the kaiju throws: every beat gets one of its hazards (a wave spans the whole road), still through the grammar
+      let mask, tries = 0;
+      do {
+        mask = empty(); mask.z = zb; mask.thrown = true;
+        if (waveBeats.has(b)) { for (let l = 0; l < LANES; l++) mask[l] = 'wave'; }
+        else {
+          const kinds = kaiju.throws.filter(k => k !== 'wave');
+          const kind = rng.pick(kinds);
+          if (kind === 'wide') { const left = rng.int(0, LANES - 2); mask[left] = mask[left + 1] = 'wide'; mask.wideLeft = left; }
+          else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.35)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
+        }
+        tries++;
+      } while (!stepReach(mask, reach, prev) && tries < 12);
+      if (!stepReach(mask, reach, prev)) { mask = empty(); mask.z = zb; }
+      commit(mask); continue;
+    }
 
     if (wall && b === 3) {
       // Torii wall: posts in two lanes, a gate you must slide under in the third. The beat
@@ -228,11 +266,14 @@ function generateTrack(seed, index, track, diff, wave, z0) {
 export function generate(seed, index) {
   const { diff, wave } = difficultyAt(seed, index);
   const z0 = index * CHUNK_LEN;
+  const kaiju = kaijuOf(index);
+  const waveBeats = new Set();
+  if (kaiju && kaiju.throws.includes('wave')) { const r = mulberry32(mixSeed(seed, index) ^ 0x3a7e); waveBeats.add(r.int(1, 3)); }
   const tracks = [];
-  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0));
+  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats));
   const cells = tracks.flatMap(t => t.cells).sort((a, b) => a.z - b.z);
   return { index, z0, length: CHUNK_LEN, difficulty: diff, wave, release: tracks[0].release, wall: tracks.some(t => t.wall),
-    biome: biomeOf(index), season: seasonOf(index), cells, rows: tracks.map(t => t.rows) };
+    biome: biomeOf(index), season: seasonOf(index), kaiju, cells, rows: tracks.map(t => t.rows) };
 }
 
 /**

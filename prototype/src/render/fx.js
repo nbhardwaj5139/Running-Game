@@ -134,6 +134,6 @@ export function makeShockRing(parent) {
   }
   return {
     burst(x, z, color) { const r = rings.reduce((a, b) => (a.life > b.life ? a : b)); r.life = 0; r.m.position.set(x, 0.05, z); r.m.material.color.copy(color); r.m.visible = true; },
-    update(dt) { for (const r of rings) { if (r.life > 1) { r.m.visible = false; continue; } r.life += dt * 1.8; const k = 1 + r.life * 6; r.m.scale.set(k, k, 1); r.m.material.opacity = (1 - r.life) * 0.9; } },
+    update(dt) { for (const r of rings) { if (r.life > 1) { r.m.visible = false; continue; } r.life += dt * 2.2; const k = 1 + r.life * 3.5; r.m.scale.set(k, k, 1); r.m.material.opacity = (1 - r.life) * 0.55; } },
   };
 }

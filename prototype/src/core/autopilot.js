@@ -12,7 +12,8 @@ function verdicts(row) {
   const v = new Array(LANES_TOTAL).fill('free');
   for (const c of row) {
     const g = globalLane(c.track, c.lane);
-    if (c.type === 'wide') { v[g] = 'block'; v[g + 1] = 'block'; }
+    if (c.type === 'wave') { for (let l = 0; l < LANES; l++) v[c.track * LANES + l] = v[c.track * LANES + l] === 'block' ? 'block' : 'jump'; }
+    else if (c.type === 'wide') { v[g] = 'block'; v[g + 1] = 'block'; }
     else if (c.type === 'roller') { v[g] = 'block'; v[g + c.dir] = 'block'; }
     else if (c.type === 'stalk') v[g] = 'block';
     else if (c.type === 'gap' || c.type === 'drusen') v[g] = 'jump';

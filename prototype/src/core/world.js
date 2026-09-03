@@ -1,6 +1,6 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, CHUNK_LEN } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, CHUNK_LEN } from './chunks.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
 
@@ -39,7 +39,7 @@ export class World {
     this.log = [];                // inputs for replay/validation
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
-    this.bumpCool = 0;
+    this.bumpCool = 0; this.kaiju = null;
   }
 
   /** The kitsune (right track) — kept for HUD/debug convenience. */
@@ -71,6 +71,8 @@ export class World {
     // --- sections ---
     const idx = this.chunkIndex; const biome = biomeOf(idx), season = seasonOf(idx);
     if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, index: idx }); }
+    const kj = kaijuOf(idx);
+    if ((kj?.id ?? null) !== (this.kaiju?.id ?? null)) { this.kaiju = kj; this._emit({ type: 'kaiju', kaiju: kj, index: idx }); }
 
     // --- chunks ---
     this.pool.update(this.distance);
@@ -103,7 +105,7 @@ export class World {
           }
           if (prevZ < zc && p.z >= zc) {
             this.resolved.add(key);
-            const onLane = Math.abs(p.xLane - g) < 0.5;   // continuous: where the body actually is
+            const onLane = cell.type === 'wave' || Math.abs(p.xLane - g) < 0.5;   // continuous: where the body actually is; waves span the road
             if (cell.type === 'photon') { if (onLane || p.magnetT > 0) this._coin(cell, p); continue; }
             if (cell.type === 'power') { if (onLane || p.magnetT > 0) this._power(cell, p); continue; }
             if (!onLane) {
@@ -157,7 +159,7 @@ export class World {
     if (p.dashT > 0) { this._clean(cell, p, true); return; }
     switch (cell.type) {
       case 'arch': if (p.action === 'slide' || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
-      case 'drusen': if (p.y > 0.5 || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
+      case 'drusen': case 'wave': if (p.y > 0.5 || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
       case 'gap': if (p.y > 0.25 || p.iT > 0) this._clean(cell, p, true); else this._fall(cell, p); break;
     }
   }

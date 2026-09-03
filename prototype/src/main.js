@@ -4,6 +4,7 @@ import { normalizeSeed } from './core/rng.js';
 import { CHUNK_LEN, biomeOf, seasonOf, DIFFICULTY } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
+import { CHARACTERS, characterById } from './render/characters.js';
 
 const q = new URLSearchParams(location.search);
 const seedParam = q.get('seed') || new Date().toISOString().slice(0, 10);   // Seed of the Day by default
@@ -20,6 +21,27 @@ let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
 try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
 if (DIFFICULTY[q.get('diff')]) difficulty = q.get('diff');
 if (!DIFFICULTY[difficulty]) difficulty = 'normal';
+// ---- characters: chars[0] runs the left track (companion / player 2), chars[1] the right (you / player 1)
+let chars = ['tanuki', 'kitsune'];
+try { const c = JSON.parse(localStorage.getItem('kitsune.chars') || 'null'); if (Array.isArray(c) && c.length === 2) chars = c; } catch {}
+if (q.get('p1')) chars[1] = q.get('p1'); if (q.get('p2')) chars[0] = q.get('p2');
+chars = chars.map(id => characterById(id).id);
+function renderCharacterPickers() {
+  for (const slot of [0, 1]) {
+    const row = document.getElementById('chars' + slot); row.innerHTML = '';
+    for (const c of CHARACTERS) {
+      const b = document.createElement('button'); b.className = 'cbtn' + (chars[slot] === c.id ? ' on' : ''); b.dataset.id = c.id; b.title = c.blurb;
+      b.innerHTML = `<b>${c.jp}</b><span>${c.en}</span>`; row.appendChild(b);
+    }
+  }
+  hud.who[0].parentElement.firstChild.textContent = `${characterById(chars[0]).jp} ${characterById(chars[0]).en.toUpperCase()} `;
+  hud.who[1].parentElement.firstChild.textContent = `${characterById(chars[1]).jp} ${characterById(chars[1]).en.toUpperCase()} `;
+}
+for (const slot of [0, 1]) document.getElementById('chars' + slot).addEventListener('click', (e) => {
+  const b = e.target.closest('.cbtn'); if (!b) return;
+  chars[slot] = b.dataset.id; try { localStorage.setItem('kitsune.chars', JSON.stringify(chars)); } catch {}
+  renderCharacterPickers(); renderer?.setCharacters(chars);
+});
 function setDifficulty(d) {
   difficulty = d; try { localStorage.setItem('kitsune.diff', d); } catch {}
   for (const b of document.querySelectorAll('.dbtn')) b.classList.toggle('on', b.dataset.diff === d);
@@ -125,7 +147,8 @@ function frame(now) {
 }
 
 newWorld();
-renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0' });
+renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0', characters: chars });
+renderCharacterPickers();
 hud.hint.textContent = `seed ${seedParam} · Seed of the Day — same road for everyone today`;
 requestAnimationFrame(() => hud.hint.textContent += ` · ${DIFFICULTY[difficulty].en}`);
 if (q.get('mode')) start(Number(q.get('mode')));

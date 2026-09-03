@@ -39,7 +39,7 @@
   #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 3; box-shadow: inset 0 0 120px 20px rgba(5,0,2,.35); }
   #msg { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 5; }
   #msg.hidden { display: none; }
-  #msg .card { pointer-events: auto; background: rgba(12,8,20,.74); border: 1px solid rgba(255,159,196,.35); border-radius: 14px; padding: 26px 34px; max-width: 640px; text-align: center; backdrop-filter: blur(8px); }
+  #msg .card { pointer-events: auto; background: rgba(12,8,20,.74); border: 1px solid rgba(255,159,196,.35); border-radius: 14px; padding: 22px 30px; max-width: 700px; max-height: 92vh; overflow-y: auto; text-align: center; backdrop-filter: blur(8px); }
   #msg h1 { margin: 0 0 2px; font-size: 44px; letter-spacing: .22em; color: #fff; font-weight: 900; text-shadow: 0 0 18px rgba(255,159,196,.9), 0 0 40px rgba(255,80,140,.5); }
   #msg h1 small { display: block; font-size: 13px; letter-spacing: .5em; color: var(--pink); font-weight: 500; margin-top: 4px; font-family: "Shippori Mincho", serif; }
   #msg p { margin: 10px 0; line-height: 1.5; font-size: 14px; }
@@ -49,6 +49,14 @@
   .mode b { display: block; font-size: 22px; letter-spacing: .12em; margin-bottom: 4px; } .mode small { display: block; font-size: 12px; opacity: .8; line-height: 1.5; }
   .mode kbd { margin-right: 4px; }
   .keys { font-size: 12px; opacity: .85; line-height: 2; }
+  .pick { margin: 12px 0 2px; font-size: 10px; letter-spacing: .25em; text-transform: uppercase; opacity: .9; }
+  .pick > span { display: block; opacity: .65; margin-bottom: 6px; }
+  .chars { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .cbtn { border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.05); color: var(--ink); border-radius: 10px; padding: 6px 8px; min-width: 62px; font: inherit; cursor: pointer; text-transform: none; letter-spacing: 0; line-height: 1.1; }
+  .cbtn b { display: block; font-family: "Shippori Mincho", serif; font-size: 18px; font-weight: 600; }
+  .cbtn span { display: block; font-size: 10px; opacity: .8; margin-top: 3px; }
+  .cbtn.on { border-color: var(--pink); background: rgba(255,159,196,.16); color: #fff; box-shadow: 0 0 12px rgba(255,159,196,.35); }
+  .cbtn:focus-visible { outline: 2px solid var(--pink); }
   .diff { display: flex; gap: 8px; justify-content: center; align-items: center; margin: 14px 0 4px; font-size: 11px; letter-spacing: .25em; text-transform: uppercase; opacity: .9; }
   .diff span { margin-right: 6px; opacity: .7; }
   .dbtn { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); color: var(--ink); border-radius: 20px; padding: 6px 14px; font: inherit; font-size: 13px; letter-spacing: .08em; cursor: pointer; text-transform: none; }
@@ -83,6 +91,8 @@
   <div class="card">
     <h1>KITSUNE<small>狐 · 四季を駆ける</small></h1>
     <p id="msgBody">A fox spirit and a tanuki run the old road from the mountain shrines through the city, the suburbs and the coast, as the seasons turn.<br>A typhoon follows. Keep the pair ahead of it.</p>
+    <div class="pick"><span>you · right road</span><div class="chars" id="chars1"></div></div>
+    <div class="pick"><span>companion / player 2 · left road</span><div class="chars" id="chars0"></div></div>
     <div class="diff" id="diff"><span>difficulty</span>
       <button class="dbtn" data-diff="easy">易 Easy</button><button class="dbtn on" data-diff="normal">普通 Normal</button><button class="dbtn" data-diff="hard">難 Hard</button>
     </div>

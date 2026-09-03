@@ -13,7 +13,8 @@ import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
 import { MeshPool, InstancePool, compose, radial, canvasTexture, lerp, clamp01, paint, merge, box, cyl, cone, sph, GLOW } from './common.js';
-import { buildObstacles, buildPowers, buildRig, coinGeometry } from './props.js';
+import { buildObstacles, buildPowers, coinGeometry } from './props.js';
+import { buildCharacter, characterById } from './characters.js';
 import { getTheme } from './theme.js';
 import { makeSky } from './sky.js';
 import { makeGroundMaterial, groundGeometry, MAX_LIGHTS } from './ground.js';
@@ -147,21 +148,7 @@ export class Renderer {
 
     // runners
     this.rigs = [];
-    for (const [track, kind] of [[0, 'tanuki'], [1, 'kitsune']]) {
-      const mats = [];
-      const rig = buildRig(kind, (hex) => { const m = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.65 }); mats.push(m); return m; });
-      rig.mats = rig.mats?.length ? rig.mats : mats;
-      this.stage.add(rig.group);
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
-      shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.015; this.stage.add(shadow);
-      const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 1.6, 2.0), transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      bubble.position.y = 0.55; bubble.visible = false; rig.group.add(bubble);
-      const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(120,200,255,0.9)', 'rgba(60,120,255,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-      aura.scale.set(2.6, 2.6, 1); aura.position.y = 0.5; rig.group.add(aura);
-      const light = new THREE.PointLight(track ? 0xffb070 : 0x9fd8ff, 4, 6, 1.6); light.position.set(0, 0.9, -0.3); rig.group.add(light);
-      const trail = makeTrail(this.root, track ? new THREE.Color(0.5, 1.2, 2.4) : new THREE.Color(1.6, 1.1, 0.5));
-      this.rigs.push({ track, rig, shadow, bubble, aura, trail, hurt: 0, prevX: null, lean: 0, phase: 0 });
-    }
+    this.setCharacters(opts.characters || ['tanuki', 'kitsune']);
     this.shock = makeShockRing(this.root);
 
     // typhoon: a cloud bank descending from the top of the frame + lightning
@@ -193,6 +180,28 @@ export class Renderer {
     this.grade = new ShaderPass(GRADE); if (opts.bloom !== false) this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
     addEventListener('resize', () => this.resize());
+  }
+
+  /** Build (or rebuild) the two runner rigs: ids[0] runs the left track, ids[1] the right. */
+  setCharacters(ids) {
+    for (const R of this.rigs) { this.stage.remove(R.rig.group); this.stage.remove(R.shadow); this.root.remove(R.trail.obj); }
+    this.rigs = []; this.characters = ids.slice();
+    for (const track of [0, 1]) {
+      const ch = characterById(ids[track]); const mats = [];
+      const rig = buildCharacter(ch.id, (hex) => { const m = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.65 }); mats.push(m); return m; });
+      rig.mats = rig.mats?.length ? rig.mats : mats;
+      this.stage.add(rig.group);
+      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
+      shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.015; this.stage.add(shadow);
+      const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 1.6, 2.0), transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      bubble.position.y = 0.55; bubble.visible = false; rig.group.add(bubble);
+      const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(120,200,255,0.9)', 'rgba(60,120,255,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+      aura.scale.set(2.6, 2.6, 1); aura.position.y = 0.5; rig.group.add(aura);
+      const tc = new THREE.Color(...ch.trail);
+      const light = new THREE.PointLight(tc.clone().multiplyScalar(0.5), 4, 6, 1.6); light.position.set(0, 0.9, -0.3); rig.group.add(light);
+      const trail = makeTrail(this.root, tc);
+      this.rigs.push({ track, rig, shadow, bubble, aura, trail, hurt: 0, prevX: null, lean: 0, phase: 0 });
+    }
   }
 
   resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); this.gl.setSize(innerWidth, innerHeight); this.composer.setSize(innerWidth, innerHeight); }

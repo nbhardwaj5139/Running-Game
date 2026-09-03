@@ -1,28 +1,21 @@
-# KITSUNE · 狐 — an endless run from the mountain shrines into Tokyo
+# KITSUNE · 狐 — an endless run through Japan's seasons
 
-> A fox spirit runs a stone shrine path through cedar and sakura, down into a neon street at dusk. A typhoon follows. Tremors shift the road under your feet.
+> A fox spirit and a tanuki run the old road from the mountain shrines through the city, the suburbs and the coast, as spring turns to summer, autumn and winter. A typhoon follows. Keep the pair ahead of it.
 
-A 3D endless runner that modernises the Temple Run loop with one mechanical twist — **the world moves, not you** — and a multiplayer mode where rivals share the same road and the same *Ki* that makes it tremble.
+**Play it:** `npm install && npm run dev` → http://localhost:8080 — pick **1 Player** (you are the fox; the tanuki spirit runs beside you) or **2 Players** (WASD tanuki, arrows fox, one keyboard). The two can cross into each other's half of the road and **barge** each other.
 
-The design documents were written for the original concept, **VITREOUS** (running inside the eye of a sleeping colossus); the playable prototype is its **Japan art build**. The simulation is identical — the docs' *saccade* is the build's *tremor*, the *Blink* is the *typhoon*, *Nerve* is *Ki*, *photons* are *coins*:
+Docs: [`docs/KITSUNE_GDD.md`](docs/KITSUNE_GDD.md) (the current design), [`docs/RENDER_API.md`](docs/RENDER_API.md) (renderer module contract), [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) + [`docs/TECHNICAL_BLUEPRINT.md`](docs/TECHNICAL_BLUEPRINT.md) (the original VITREOUS concept and multiplayer designs this grew from).
 
-| Sim cell | Mountain shrine path (chunks 0–9, 20–29 …) | Tokyo street (chunks 10–19, 30–39 …) | Escape |
-|---|---|---|---|
-| `stalk` | stone lantern (石灯籠) | vending machine | change lane |
-| `arch` | small torii | noren shop curtain | slide |
-| `drusen` | mossy boulder | striped construction barrier | jump |
-| `gap` | broken flagstones | open manhole strip | jump |
-| `photon` / `lumen` | koban coins / hitodama wisp | koban coins / hitodama wisp | collect |
+## What's in the prototype
+- **Sim** (`prototype/src/core/`): one six-lane road made of two solvable home tracks; obstacles stalk / arch / drusen / gap / wide / roller; torii walls; powers (Kitsune Shield, Tanuki Magnet, Wind Kami Dash, Daruma ×2, Sakura Heal); a shared typhoon margin; falls respawn; runner-vs-runner barging; an autopilot companion; deterministic replay.
+- **Render** (`prototype/src/render/`): 65 procedural Japanese obstacle variants, fox and tanuki rigs, scenery for mountain / city / suburb / coast across four seasons, a wet-asphalt/flagstone/sand ground shader with puddle reflections and snow, a Shinkai-style sky (cumulus, comet, god rays, lens flare), instanced wind-swayed grass and flowers, seasonal particles (petals, tumbling leaves, snow, fireflies, rain, wind ribbons), bloom + anime grade.
+- **Tests** (`tests/`): 240,000-track solvability sweep, replay determinism, powers, barging, autopilot.
 
-Set-dressing per biome: instanced cedars and sakura, roadside lanterns and strings of chōchin, ground mist and fireflies; instanced buildings with lit windows, kanji neon signs (ラーメン, 寿司, 居酒屋…) whose light reflects in puddles on wet asphalt, street lamps, an elevated viaduct with a passing shinkansen. Mount Fuji, layered ridges, and a Tokyo-Tower silhouette sit on the horizon; the sun sets over the first 1.5 km and the sky goes to stars. Bloom for anything that glows; sakura petals; typhoon rain and lightning as the storm closes in.
+`?seed=NAME` fixes the road (default: Seed of the Day), `?mode=1|2` skips the start screen, `?bloom=0` disables post-processing, `?reduced=1` for reduced motion.
 
-| | |
-|---|---|
-| **Design** | [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) — three original settings (Vitreous, The Long Fall, Canticle), the Blink, saccades, five multiplayer designs, core loop, progression, monetization |
-| **Blueprint** | [`docs/TECHNICAL_BLUEPRINT.md`](docs/TECHNICAL_BLUEPRINT.md) — stack choice, chunk-pooled procgen with a solvability grammar, event-based netcode with a shared tick clock, movement pseudocode |
-| **Prototype** | [`prototype/`](prototype) — zero-build Three.js implementation of the blueprint (single-player + Shared Nerve) |
-| **Server** | [`server/`](server) — Socket.io room server: tick clock, shared Nerve, saccade scheduling, replay validation |
-| **Tests** | [`tests/`](tests) — determinism, a 120 000-chunk solvability sweep, pool recycling, movement, replay |
+`server/` is the Shared Nerve multiplayer server from the earlier single-runner build; it is not wired into the two-runner prototype.
+
+---
 
 ## Run it
 

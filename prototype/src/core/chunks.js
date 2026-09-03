@@ -117,8 +117,8 @@ export function kaijuOf(index) {
   const season = seasonOf(index);
   return { ...KAIJU[season], season, side: Math.floor(index / SEASON_LEN) % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
 }
-export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal'];
-const POWER_WEIGHTS = [0.26, 0.24, 0.2, 0.15, 0.15];
+export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack'];
+const POWER_WEIGHTS = [0.22, 0.2, 0.16, 0.13, 0.13, 0.16];
 export const VARIANTS = 4;                           // visual variants per obstacle type (renderer picks props)
 
 /** Difficulty presets chosen on the start screen. `hazard` scales row density, `power` the pickup rate. */
@@ -136,7 +136,7 @@ export const TUNING = {
   wideChance: [0, 0.22],   // a two-lane block instead of a single hazard
   rollerChance: [0, 0.16],
   wallEvery: 6,            // in chunks, once diff > 0.7: a torii wall with one slide-through lane
-  releaseBelow: 0.2,       // wave value under which a chunk is a "release" chunk
+  releaseBelow: 0.28,      // wave value under which a chunk is a "release" chunk (breathing room)
   powerChance: 0.3,        // per track per chunk
 };
 
@@ -146,7 +146,7 @@ function smoothstep(e0, e1, x) { const t = Math.min(1, Math.max(0, (x - e0) / (e
 /** Breathing difficulty: a base ramp modulated by a tension/release wave. */
 export function difficultyAt(seed, index, cfg = DIFFICULTY.normal) {
   const period = 5 + (mixSeed(seed, 0xbeef) % 3); // 5..7, fixed per seed
-  const base = Math.min(1, 0.2 + 0.8 * (1 - Math.exp(-index / 32)));
+  const base = Math.min(1, 0.18 + 0.82 * (1 - Math.exp(-index / 48)));
   const phase = (index % period) / period;
   const wave = phase < 0.7 ? smoothstep(0, 0.7, phase) : 1 - smoothstep(0.7, 1, phase);
   return { diff: Math.min(1, base * (0.55 + 0.45 * wave) * cfg.hazard), wave, base, period };
@@ -247,7 +247,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
           const kind = rng.pick(kinds);
           if (kaiju.id === 'bridge' && rng.chance(0.35)) { /* a beat that holds */ }
           else if (kind === 'wide') { const left = rng.int(0, LANES - 2); mask[left] = mask[left + 1] = 'wide'; mask.wideLeft = left; }
-          else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.35 * cfg.throws)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
+          else { mask[rng.int(0, LANES - 1)] = kind; if (diff > 0.5 && rng.chance(0.22 * cfg.throws)) { const l2 = rng.int(0, LANES - 1); if (!mask[l2]) mask[l2] = rng.pick(kinds.filter(k => k !== 'wide')); } }
         }
         tries++;
       } while (!stepReach(mask, reach, prev) && tries < 12);

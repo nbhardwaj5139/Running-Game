@@ -101,7 +101,7 @@ const frag = /* glsl */`
       float cross = step(2.0, cz) * step(cz, 5.2) * step(0.5, fract(x / 0.9)) * road;
       float dbl = (1.0 - smoothstep(0.04, 0.08, abs(ax - 0.16))) * (1.0 - cross);
       surf = asphalt + vec3(0.90) * (dash * 0.8 + cross * 0.85 + dbl * 0.9 + edge * 0.7);
-      puddle = smoothstep(0.52, 0.66, fbm(p * 0.17 + 3.0)) * (0.55 + 0.45 * uWet);
+      puddle = max(smoothstep(0.50, 0.64, fbm(p * 0.17 + 3.0)), 0.35 * uWet) * (0.7 + 0.5 * uWet) + 0.18;   // the whole street sheens; puddles mirror the billboards
       vec3 skyRef = mix(vec3(0.56, 0.46, 0.56), vec3(0.08, 0.09, 0.22), uNight);
       surf = mix(surf, surf * 0.4 + skyRef * 0.6, puddle * 0.85 * road);
       vec3 pave = vec3(0.42, 0.42, 0.44) * (0.8 + 0.3 * n); vec2 pc = fract(p / 0.8);
@@ -165,7 +165,7 @@ const frag = /* glsl */`
       float s = exp(-dx * dx * (0.5 + 0.02 * dz)) * step(0.0, dz) * exp(-dz * 0.09) * (0.25 + 0.75 * puddle);
       glow += uLightCol[i] * s * L.w;
     }
-    glow *= 0.4 * (0.45 + 0.55 * uNight) * (0.7 + 0.5 * uWet) * mix(0.3, 1.0, road);
+    glow *= (uBiome > 0.5 && uBiome < 1.5 ? 0.75 : 0.4) * (0.5 + 0.5 * uNight) * (0.7 + 0.6 * uWet) * mix(0.3, 1.0, road);
     glow = glow / (1.0 + glow);                       // soft clamp: many lights never whiten the road
 
     col *= mix(1.0, 0.45, uNight);

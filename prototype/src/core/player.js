@@ -18,8 +18,11 @@ export const P = {
   STUMBLE_MULT: 0.72,
   SPEED_MAX: 22,
   SPEED_BASE: 11,
-  DASH_T: 3.5,            // Wind Kami dash: invulnerable, clears everything in its path
+  DASH_T: 5,              // Wind Kami star run: invulnerable, faster, smashes everything in its path
   MAGNET_T: 10,
+  SHIELD_T: 8,            // Kitsune shield: smash through obstacles for a while
+  JETPACK_T: 6,           // jetpack: fly over every ground hazard, faster
+  FLY_H: 2.3,
   INVULN_T: 1.2,          // grace after a fall
 };
 
@@ -43,7 +46,7 @@ export class Player {
     this.action = 'run'; this.slideT = 0;
     this.stumbleT = 0;
     this.z = 0;
-    this.shield = false; this.magnetT = 0; this.dashT = 0; this.iT = 0;
+    this.shield = false; this.shieldT = 0; this.magnetT = 0; this.dashT = 0; this.jetpackT = 0; this.iT = 0;
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
     this.laneTime = P.LANE_T; this.stumbleScale = 1;   // set by the world from the weather
@@ -60,7 +63,8 @@ export class Player {
   _fresh(b) { return b && (this.tick - b.tick) / 60 <= P.BUFFER_T; }
 
   get height() { return this.action === 'slide' ? P.SLIDE_H : P.STAND_H; }
-  get invulnerable() { return this.dashT > 0 || this.iT > 0; }
+  get invulnerable() { return this.dashT > 0 || this.iT > 0 || this.jetpackT > 0; }
+  get flying() { return this.jetpackT > 0; }
   /** The track this runner is physically on right now (it may have crossed over). */
   get track() { return trackOf(this.xLane); }
   get home() { return this.id; }
@@ -92,8 +96,8 @@ export class Player {
         this.jumpHeld = false;
       }
     }
-    this.vy += P.GRAVITY * dt;
-    this.y = Math.max(0, this.y + this.vy * dt);
+    if (this.jetpackT > 0) { this.vy = 0; this.y += (P.FLY_H - this.y) * Math.min(1, dt * 5); this.grounded = false; this.airTime = 0; if (this.action === 'jump') this.action = 'run'; }
+    else { this.vy += P.GRAVITY * dt; this.y = Math.max(0, this.y + this.vy * dt); }
     if (!this.grounded) this.airTime += dt;
     if (this.y === 0 && !this.grounded) { this.grounded = true; this.airTime = 0; this.vy = 0; if (this.action === 'jump') this.action = 'run'; }
     if (this.y === 0 && this.grounded) this.vy = 0;
@@ -110,6 +114,8 @@ export class Player {
     this.stumbleT = Math.max(0, this.stumbleT - dt);
     this.magnetT = Math.max(0, this.magnetT - dt);
     this.dashT = Math.max(0, this.dashT - dt);
+    this.jetpackT = Math.max(0, this.jetpackT - dt);
+    if (this.shieldT > 0) { this.shieldT = Math.max(0, this.shieldT - dt); if (this.shieldT === 0) this.shield = false; }
     this.iT = Math.max(0, this.iT - dt);
   }
 

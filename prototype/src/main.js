@@ -15,7 +15,7 @@ const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-m
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
   quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
-const POWER_NAMES = { shield: '御守 KITSUNE SHIELD', magnet: '狸の磁力 TANUKI MAGNET', dash: '風神 WIND KAMI DASH', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL' };
+const POWER_NAMES = { shield: '御守 SPIRIT SHIELD — smash through anything', magnet: '狸の磁力 TANUKI MAGNET', dash: '★ WIND KAMI STAR RUN — faster, unstoppable', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL', jetpack: '🚀 TENGU JETPACK — fly over everything' };
 
 let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
 let acc = 0, last = performance.now(), toastT = 0, powerT = 0;
@@ -194,6 +194,7 @@ function frame(now) {
     el.querySelector('.shield').classList.toggle('on', r.shield);
     el.querySelector('.magnet').classList.toggle('on', r.magnetT > 0);
     el.querySelector('.dash').classList.toggle('on', r.dashT > 0);
+    el.querySelector('.jetpack').classList.toggle('on', r.jetpackT > 0);
   }
   if (toastT > 0 && (toastT -= dt) <= 0) hud.toast.classList.remove('on');
   if (powerT > 0 && (powerT -= dt) <= 0) hud.power.classList.remove('on');

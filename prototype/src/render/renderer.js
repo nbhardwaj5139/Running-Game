@@ -115,6 +115,7 @@ function kaijuProps(obstacles) {
   };
 }
 const PAINT_REF = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+const _COL = new THREE.Color();
 const _V3 = new THREE.Vector3(), _V3b = new THREE.Vector3(), _V3c = new THREE.Vector3(), _Q1 = new THREE.Quaternion(), _M4 = new THREE.Matrix4(), _UP = new THREE.Vector3(0, 1, 0);
 
 export class Renderer {
@@ -204,10 +205,12 @@ export class Renderer {
       bubble.position.y = 0.55; bubble.visible = false; rig.group.add(bubble);
       const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(120,200,255,0.9)', 'rgba(60,120,255,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
       aura.scale.set(2.6, 2.6, 1); aura.position.y = 0.5; rig.group.add(aura);
+      const jet = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial('rgba(255,235,160,1)', 'rgba(255,90,20,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+      jet.scale.set(1.2, 2.2, 1); jet.position.set(0, -0.6, -0.35); rig.group.add(jet);
       const tc = new THREE.Color(...ch.trail);
       const light = new THREE.PointLight(tc.clone().multiplyScalar(0.5), 4, 6, 1.6); light.position.set(0, 0.9, -0.3); rig.group.add(light);
       const trail = makeTrail(this.root, tc);
-      this.rigs.push({ track, rig, shadow, bubble, aura, trail, hurt: 0, prevX: null, lean: 0, phase: 0 });
+      this.rigs.push({ track, rig, shadow, bubble, aura, jet, trail, hurt: 0, prevX: null, lean: 0, phase: 0 });
     }
   }
 
@@ -379,7 +382,10 @@ export class Renderer {
         for (const v of this.views.values()) for (const pw of v.powers) if (pw.cell === e.cell) { pw.m.visible = false; pw.ring.visible = false; this.shock.burst(pw.x, pw.z, this.powers[e.kind].ring); }
         break;
       }
-      case 'shield': this.shock.burst(roadX(this.world.runners[e.runner].xLane), this.world.distance, new THREE.Color(1.5, 2.2, 2.6)); break;
+      case 'shield': case 'smash': {
+        this.shock.burst(roadX(this.world.runners[e.runner].xLane), this.world.distance, e.type === 'shield' ? new THREE.Color(1.5, 2.2, 2.6) : new THREE.Color(2.4, 1.6, 0.8));
+        if (e.cell) for (const v of this.views.values()) for (const m of v.meshes) if (m.userData.cell === e.cell) m.visible = false;   // punched clean through it
+        break; }
       case 'bump': { const m = this.world.runners[e.mover]; this.shock.burst(roadX(m.xLane), this.world.distance, new THREE.Color(2.2, 1.8, 1.2)); break; }
       case 'stumble': this.shake = Math.max(this.shake, 0.18); if (R) R.hurt = 0.6; break;
       case 'fall': this.shake = Math.max(this.shake, 0.3); if (R) R.hurt = 1.0; break;
@@ -435,13 +441,16 @@ export class Renderer {
       g.position.set(px, p.y + (p.grounded && !slide ? 0.035 * Math.abs(Math.sin(this.phase)) : 0), w.distance);
       R.rig.legs.forEach((l, i) => { l.rotation.x = air ? 0.9 : Math.sin(this.phase + (i % 2 ? Math.PI : 0) + (i >= 2 ? Math.PI * 0.5 : 0)) * 0.95; });
       if (R.rig.tail) { R.rig.tail.rotation.z = Math.sin(this.phase * 0.5) * 0.3; R.rig.tail.rotation.x = air ? -0.5 : 0; }
-      const dash = p.dashT > 0;
-      g.scale.set(1, slide ? 0.55 : 1, slide ? 1.25 : dash ? 1.15 : 1);
-      g.rotation.set(slide ? 0.25 : air ? -0.25 : 0, -laneVel * 0.06, -R.lean); placeMesh(g);
+      const dash = p.dashT > 0, fly = p.jetpackT > 0;
+      g.scale.set(dash ? 1.1 : 1, slide ? 0.55 : dash ? 1.1 : 1, slide ? 1.25 : dash ? 1.2 : 1);
+      g.rotation.set(slide ? 0.25 : fly ? -0.32 : air ? -0.25 : 0, -laneVel * 0.06, -R.lean); placeMesh(g);
+      R.jet.material.opacity += ((fly ? 0.9 : 0) - R.jet.material.opacity) * Math.min(1, dt * 8); R.jet.scale.set(1.0 + 0.3 * Math.sin(this.time * 40), 2.0 + 0.5 * Math.sin(this.time * 33), 1);
+      if (fly) R.rig.legs.forEach(l => { l.rotation.x = 0.9; });
       g.visible = !(p.iT > 0 && Math.floor(this.time * 18) % 2 === 0);
       R.hurt = Math.max(0, R.hurt - dt);
       const hurtGlow = R.hurt > 0 ? 0.5 + 0.5 * Math.sin(this.time * 40) : 0;
-      for (const m of R.rig.mats) if (m.emissive) m.emissive.setRGB(hurtGlow + (dash ? 0.25 : 0), hurtGlow * 0.1 + (dash ? 0.35 : 0), dash ? 0.6 : 0);
+      if (dash) { const hue = (this.time * 1.6) % 1; _COL.setHSL(hue, 1, 0.55); for (const m of R.rig.mats) if (m.emissive) m.emissive.copy(_COL).multiplyScalar(0.7); }   // star run: rainbow flicker
+      else for (const m of R.rig.mats) if (m.emissive) m.emissive.setRGB(hurtGlow, hurtGlow * 0.1, 0);
       R.bubble.visible = p.shield; R.bubble.scale.setScalar(1 + 0.05 * Math.sin(this.time * 6));
       R.aura.material.opacity += ((p.magnetT > 0 ? 0.8 : 0) - R.aura.material.opacity) * Math.min(1, dt * 6);
       R.shadow.position.set(px, 0.015, w.distance); R.shadow.rotation.set(-Math.PI / 2, 0, 0); placeMesh(R.shadow); const sh = Math.max(0.3, 1 - p.y * 0.3); R.shadow.scale.set(sh, sh, 1); R.shadow.material.opacity = 0.4 * sh;

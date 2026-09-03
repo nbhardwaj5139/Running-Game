@@ -47,7 +47,7 @@ test('shield absorbs a stumble; dash clears; magnet collects off-lane coins; x2 
   assert.deepEqual(ev, ['shield'], 'shield ate the hit');
   const d = new World(seed, { invincible: true }); const ev2 = []; d.opts.onEvent = e => { if (same(e.cell, cell)) ev2.push(e.type); };
   approach(d, { 1: globalLane(1, cell.lane) }, cell.z); d.runners[1].dashT = 99; run(d, 60);
-  assert.deepEqual(ev2, ['clear']);
+  assert.ok(ev2.includes('clear') && !ev2.includes('stumble'), 'dash clears without a stumble');
   const { seed: cs, cell: coin } = findCell('photon', 1, k => !k.hi);
   const m = new World(cs, { invincible: true }); let got = 0; m.opts.onEvent = e => { if (e.type === 'coin' && same(e.cell, coin)) got++; };
   const other = coin.lane === 0 ? 2 : 0; approach(m, { 1: globalLane(1, other) }, coin.z); m.runners[1].magnetT = 999; run(m, 60);

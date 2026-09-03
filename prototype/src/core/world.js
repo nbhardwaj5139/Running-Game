@@ -63,7 +63,8 @@ export class World {
     this.tick++; this.time += dt;
 
     // --- shared forward motion: the pair runs together, a stumble slows both ---
-    const mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
+    let mult = this.runners.some(r => r.stumbleT > 0 && !this._isAuto(r)) ? P.STUMBLE_MULT : 1;
+    if (this.runners.some(r => !r.disabled && r.dashT > 0)) mult *= 1.5; else if (this.runners.some(r => !r.disabled && r.jetpackT > 0)) mult *= 1.35;
     this.speed = speedAt(this.distance, this.cfg) * mult;
     const prevZ = this.distance;
     this.distance += this.speed * dt;
@@ -125,6 +126,7 @@ export class World {
             this.resolved.add(key);
             const onLane = cell.type === 'wave' || Math.abs(p.xLane - g) < 0.5;   // continuous: where the body actually is; waves span the road
             if (cell.type === 'photon') { if (onLane || p.magnetT > 0) this._coin(cell, p); continue; }
+            if (p.jetpackT > 0 && cell.type !== 'power') { if (onLane) this._clean(cell, p, true); continue; }   // flying: every ground hazard passes beneath
             if (cell.type === 'power') { if (onLane || p.magnetT > 0) this._power(cell, p); continue; }
             if (!onLane) {
               if (cell.type === 'gap' && Math.abs(p.lane - g) === 1 && p.stumbleT === 0 && p.y === 0) this._nearMiss(cell, p);
@@ -174,7 +176,7 @@ export class World {
   }
 
   _resolveCell(cell, p) {
-    if (p.dashT > 0) { this._clean(cell, p, true); return; }
+    if (p.dashT > 0) { this._clean(cell, p, true); if (cell.type !== 'gap') this._emit({ type: 'smash', cell, runner: p.id }); return; }
     switch (cell.type) {
       case 'arch': if (p.action === 'slide' || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
       case 'drusen': case 'wave': if (p.y > 0.5 || p.iT > 0) this._clean(cell, p, true); else this._stumble(cell, p, W.STORM_STUMBLE); break;
@@ -183,7 +185,7 @@ export class World {
   }
 
   _coin(cell, p) {
-    if (cell.hi && p.y <= 0.8 && p.magnetT === 0) return;
+    if (cell.hi && p.y <= 0.8 && p.magnetT === 0 && p.jetpackT === 0) return;
     const n = this.x2T > 0 ? 2 : 1;
     this.coins += n; this.streak++;
     this.score += W.SCORE_COIN * n * (1 + Math.floor(this.streak / 10) * 0.5);
@@ -194,7 +196,8 @@ export class World {
   _power(cell, p) {
     this.powers++;
     switch (cell.kind) {
-      case 'shield': p.shield = true; break;
+      case 'shield': p.shield = true; p.shieldT = P.SHIELD_T; break;
+      case 'jetpack': p.jetpackT = P.JETPACK_T; p.stumbleT = 0; break;
       case 'magnet': p.magnetT = P.MAGNET_T; break;
       case 'dash': p.dashT = P.DASH_T; p.stumbleT = 0; break;
       case 'x2': this.x2T = W.X2_T; break;
@@ -210,9 +213,9 @@ export class World {
     this._emit({ type: 'nearmiss', cell, runner: p.id, side: globalLane(cell.track, cell.lane) > p.lane ? 1 : -1 });
   }
 
-  /** A crash into an arch/drusen: the shield eats it, otherwise a stumble costs storm margin. */
+  /** A crash into an arch/drusen: a shield smashes straight through it, otherwise a stumble costs storm margin. */
   _stumble(cell, p, cost) {
-    if (p.shield) { p.shield = false; this._emit({ type: 'shield', cell, runner: p.id }); return; }
+    if (p.shield) { this._emit({ type: 'shield', cell, runner: p.id }); return; }
     p.stumble();
     if (this._isAuto(p)) { this._emit({ type: 'stumble', cell, runner: p.id, free: true }); return; }
     this.streak = 0;
@@ -222,7 +225,8 @@ export class World {
   }
 
   _hitSolid(cell, p) {
-    if (p.dashT > 0 || p.iT > 0) { this._clean(cell, p, p.dashT > 0); return; }
+    if (p.dashT > 0 || p.iT > 0 || p.jetpackT > 0) { this._clean(cell, p, p.dashT > 0 || p.jetpackT > 0); if (p.dashT > 0) this._emit({ type: 'smash', cell, runner: p.id }); return; }
+    if (p.shield) { this._emit({ type: 'shield', cell, runner: p.id }); return; }   // shield: punch through the post
     // clipped it mid-change: bounce back to the lane you came from
     if (p.laneT < 1) { p.lane = Math.max(0, Math.min(LANES_TOTAL - 1, Math.round(p.laneFromX))); p.laneFromX = p.xLane; p.laneT = 0; }
     this._stumble(cell, p, W.STORM_STALK);

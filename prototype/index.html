@@ -64,6 +64,9 @@
   .dbtn:focus-visible { outline: 2px solid var(--amber); }
   kbd { display: inline-block; border: 1px solid rgba(255,255,255,.35); border-radius: 4px; padding: 0 6px; margin: 0 2px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: rgba(255,255,255,.06); }
   #msgFoot { font-size: 12px; opacity: .7; margin-top: 8px; }
+  #quit { position: fixed; top: 14px; right: 50%; transform: translateX(calc(50% + 180px)); z-index: 4; display: none; border: 1px solid rgba(255,255,255,.28); background: rgba(12,8,20,.55); color: var(--ink); border-radius: 20px; padding: 5px 12px; font: inherit; font-size: 11px; letter-spacing: .15em; cursor: pointer; backdrop-filter: blur(6px); }
+  #quit:hover { border-color: var(--red); color: #fff; }
+  @media (max-width: 700px) { #quit { right: 12px; transform: none; top: 52px; } }
   #hint { position: absolute; bottom: 30px; left: 0; right: 0; text-align: center; font-size: 11px; letter-spacing: .15em; opacity: .5; }
   @media (max-width: 700px) { .stat b { font-size: 22px; } #toast b { font-size: 44px; } #msg .card { padding: 18px; margin: 12px; } .modes { flex-direction: column; align-items: stretch; } .mode { max-width: none; } }
 </style>
@@ -85,6 +88,7 @@
   <div class="bar" id="storm"><label>台風 TYPHOON</label><i></i></div>
   <div id="hint"></div>
 </div>
+<button id="quit" title="End this run (Esc)">✕ <kbd>Esc</kbd> end run</button>
 <div id="flash"></div>
 <div id="vignette"></div>
 <div id="msg">
@@ -100,7 +104,7 @@
       <button class="mode" data-mode="1"><b><kbd>1</kbd> 1 PLAYER</b><small>You are the fox. The tanuki spirit runs beside you on its own — its mistakes never cost you.<br>Arrows or WASD · Space jump</small></button>
       <button class="mode" data-mode="2"><b><kbd>2</kbd> 2 PLAYERS</b><small>Share a keyboard: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> tanuki (left half), arrows fox (right half). Cross over and barge each other — one typhoon for both.</small></button>
     </div>
-    <div class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall &nbsp; <kbd>R</kbd> restart &nbsp; <kbd>1</kbd>/<kbd>2</kbd> mode &nbsp; swipe on touch (left half = tanuki, right half = fox in 2P)</div>
+    <div class="keys"><kbd>←</kbd><kbd>→</kbd> lane &nbsp; <kbd>↑</kbd>/<kbd>space</kbd> jump (hold for height) &nbsp; <kbd>↓</kbd> slide / fast-fall &nbsp; <kbd>R</kbd> restart &nbsp; <kbd>Esc</kbd> end run &nbsp; <kbd>1</kbd>/<kbd>2</kbd> mode &nbsp; swipe on touch (left half = tanuki, right half = fox in 2P)</div>
     <div id="msgFoot"></div>
   </div>
 </div>

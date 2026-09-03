@@ -13,7 +13,7 @@ const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-m
 
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
-  secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
+  quit: $('quit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
 const POWER_NAMES = { shield: '御守 KITSUNE SHIELD', magnet: '狸の磁力 TANUKI MAGNET', dash: '風神 WIND KAMI DASH', x2: '達磨 DARUMA ×2', heal: '桜 SAKURA HEAL' };
 
 let world, renderer, running = false, mode = 0, difficulty = 'normal';
@@ -80,13 +80,23 @@ function onDeath(e) {
   hud.msg.classList.remove('hidden');
 }
 
+/** Escape: end the run right now and go back to the start screen (a new run starts fresh). */
+function abort() {
+  if (!running) return;
+  running = false; world.alive = false;
+  hud.body.innerHTML = `Run ended.<br><b>${Math.floor(world.distance)} m</b> · score <b>${Math.floor(world.score)}</b> · ${world.coins} coins · ${DIFFICULTY[difficulty].en}`;
+  hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode to run again · Esc ends a run at any time';
+  hud.msg.classList.remove('hidden'); hud.quit.style.display = 'none';
+}
+document.getElementById('quit').addEventListener('click', abort);
+
 function start(m) {
   if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
   if (!mode) return;                          // the start screen waits for a mode
   if (!world || !world.alive || world.opts.autopilot.length !== (mode === 1 ? 1 : 0) || world.cfg.id !== difficulty) newWorld();
   hud.who[0].textContent = mode === 1 ? 'spirit companion' : 'player 2 · WASD';
   hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
-  running = true; hud.msg.classList.add('hidden'); last = performance.now(); acc = 0;
+  running = true; hud.msg.classList.add('hidden'); hud.quit.style.display = 'block'; last = performance.now(); acc = 0;
 }
 hud.modes.addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) start(Number(b.dataset.mode)); });
 
@@ -104,6 +114,7 @@ function press(track, kind, dir) {
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2') { if (!running) { start(e.code === 'Digit1' ? 1 : 2); } return; }
+  if (e.code === 'Escape') { if (running) abort(); return; }
   if (e.code === 'KeyR') { if (mode) { newWorld(); start(); } return; }
   const k = KEYS[e.code]; if (k) { e.preventDefault(); press(k[0], k[1], k[2]); } else if (!running && mode) start();
 });
@@ -113,7 +124,7 @@ addEventListener('keyup', (e) => {
   if (e.code === 'KeyW') world.input(mode === 1 ? 1 : 0, { kind: 'jumpRelease' });
 });
 let touch = null;
-addEventListener('pointerdown', (e) => { if (e.target.closest('.mode')) return; touch = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerdown', (e) => { if (e.target.closest('.mode, #quit, .dbtn, .cbtn')) return; touch = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', (e) => {
   if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; const track = mode === 2 && touch.x < innerWidth / 2 ? 0 : 1; touch = null;
   if (!running) { if (mode) start(); return; }

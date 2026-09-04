@@ -24,6 +24,7 @@ The road is the same six lanes whether one or two people are running.
 | Jump (hold for a higher jump) | `↑` or `Space` | `W` |
 | Slide / fast-fall in the air | `↓` | `S` |
 | Pause / resume | `Esc` or `P` | |
+| Sound on / off | `M` | |
 | Restart | `R` | |
 
 In 1-player mode both the arrows and WASD drive the fox. On a touchscreen, swipe: left and right to change lane, up to jump, down to slide, tap to jump.
@@ -82,7 +83,9 @@ Spring brings cherry petals, summer fireflies and festival lanterns, autumn red 
 
 **Kaiju** rise beside the road at the end of every season and throw their hazards onto it: the mountain giant Daidarabotchi, the sea giant Umibōzu, the skeleton Gashadokuro and the snow ogre Yuki-Oni.
 
-**Set pieces:** a wooden bridge that gives way under you as you cross it, and an avalanche that chases you down the winter shrine stairs.
+**Set pieces:** a wooden bridge that gives way under you as you cross it; a level crossing in the suburbs (the bell rings, a train crosses ahead, then the gate arms drop across every lane — slide); a tsunami on the Shōnan coast (a wall of water leans over the road, boats and buoys wash across it, surges span the road — jump them); a bamboo forest fire on the Hakone road (burning bamboo and logs fall in from both sides); and an avalanche that chases you down the winter shrine stairs. Seasons shift by one each lap of the itinerary, so Hakone is under snow on your second time round.
+
+**Sound:** the music is written on the fly — one theme per province, a scale per season, faster as you run, taiko when a kaiju rises. Every pickup gets a shamisen sting; a temple bell rings for each new province. Press `M` to mute.
 
 ## Tips
 
@@ -95,6 +98,8 @@ Spring brings cherry petals, summer fireflies and festival lanterns, autumn red 
 
 ## Sharing
 
-The link above is the game. Anyone with it can play in their own browser. The road, the powers and the scoring all run on the player's own machine, so two people on two laptops play the same road but not against each other live.
+The link above is the game. Anyone with it can play in their own browser. The road, the powers and the scoring all run on the player's own machine.
+
+**Racing on two laptops:** run the game from the repo (`npm install && npm run dev`) and open `http://<host>:8080/?room=NAME` on every laptop — the room name is the road. Type a name, hit **RACE**; when everyone has, the run starts on the same 3-2-1 count. Your rivals run beside you as ghosts with name tags, the HUD shows who is ahead, and every finished run is checked by replaying it on the server before the standings go up.
 
 Game link: https://claude.ai/code/artifact/e0197a09-0ff0-403b-8e1f-f7991f1fcca9

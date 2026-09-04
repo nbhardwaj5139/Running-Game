@@ -70,7 +70,11 @@ Removed on purpose: a slow-time power. The player asked for speed, not slowdown.
 - **Kaiju** rise beside the road for the last stretch of every season and throw their signature hazards onto it (still through the solvability grammar): Daidarabotchi the mountain giant, Umibōzu the sea giant, Gashadokuro the starving skeleton, Yuki-Oni the snow ogre. Each has its own rig, colour, thrown props and side of the road.
 - **The collapsing bridge**: a wooden bridge on coast and mountain stretches whose planks drop away just ahead of the runners and crumble behind them, Uncharted-style.
 - **The avalanche**: on a winter shrine descent a wall of snow chases the runners with boulders overtaking on both verges, and the storm pressure doubles.
-- Add more of these. Ideas in the same spirit: a festival float crossing the road, a level-crossing train, a tsunami on the coast, a bamboo forest fire, a lantern festival at night.
+- **The tsunami** (Shōnan): a self-lit water wall rolls in from the sea and leans over the road; boats and buoys wash across it, surges span the road; the road floods and the storm pushes ×1.8.
+- **The forest fire** (Hakone, never under snow): burning bamboo and logs drop in from both verges, flames along the road, embers, orange smoke-fog and flickering firelight; storm ×1.5.
+- **The level crossing** (suburbs): 130 m out the warning bell rings and a local train crosses the road on the rails; then the gate arms are down across every lane — slide. The chunk is straight with a clear beat before the gates.
+- Every set piece is a pure function of the chunk index (`setpieceAt`), never on a kaiju chunk, and goes through the solvability grammar.
+- Add more of these. Ideas in the same spirit: a festival float crossing the road, a lantern festival at night, fireworks over the summer coast.
 
 ## 7. Characters
 
@@ -82,7 +86,7 @@ Seven playable runners from Japanese culture, each a small primitive-built rig w
 - **Difficulty** Easy / Normal / Hard sets speed, hazard density, storm drift, pickup rate and kaiju aggression.
 - **God mode** prevents death only; hits still register, so every mechanic can be tested.
 - Esc or P pauses, with resume and end-run; R restarts. Touch: swipe.
-- Online cross-laptop play is designed (shared seed, input-log replay, server validation) but not built.
+- **Online** (`?room=NAME`): the room name is the road. Everyone readies up, the server starts all of them on one count, each laptop runs its own sim, rivals are drawn as ghosts from 10 Hz hints, and every finished run is validated by replaying its input log on the server (a lying client is flagged in the standings). No barging online — ghosts never collide.
 
 ## 9. Camera and feel rules (learned the hard way)
 
@@ -98,10 +102,12 @@ Seven playable runners from Japanese culture, each a small primitive-built rig w
 - **Pure deterministic chunk generation** `generate(seed, index, difficulty)` with a reach-set solvability grammar; chunks of 36 m, six beats; provinces, seasons, weather, kaiju, set pieces and road surface are all pure functions of (seed, index). Replays validate scores.
 - Rendering: bloom (half resolution) and an anime grade pass, a painterly sky dome shader, a procedural ground shader per biome and surface (flagstone, cobble, gravel, asphalt, sand, snow, puddles reflecting the road's light list), instanced grass and flowers with a wind vertex shader, instanced scenery pools, litter physics for leaves and petals, particle fields per season, merged vertex-coloured props.
 - Performance: pixel ratio capped at 1.5 with an adaptive render scale that drops under load, instancing everywhere, merged rigs. Keep it running on a laptop.
-- Tests: node test files for chunk solvability and world determinism must keep passing.
+- **Sound is synthesised, never loaded.** `audio/score.js` is pure data like the chunks: scales (yo / in-sen / hirajōshi by season, ryūkyū for Okinawa), one theme per province (root, tempo, instruments, drum family), and `barFor(seed, bar, province, season)`. `audio/audio.js` plays it with WebAudio voices (koto, shamisen, sanshin, shakuhachi, synth, bells, taiko), a per-biome ambience bed, the typhoon drone, and one-shots for every sim event. Audio unlocks on the first gesture; `M` mutes.
+- Seasons advance by one per lap of the itinerary (`seasonOf`), so every province eventually sees every season; the first avalanche is Hakone on lap 2.
+- Tests: node test files for chunk solvability, set-piece placement, world determinism, the score generator and the room server must keep passing.
 
 ## 11. Current state and open items
 
-Done: everything above is playable in the shared build. Open: online play on separate laptops; one unverified report of city barriers floating above the road; more set pieces; sound (nothing has audio yet: the next big win is a score that changes with province and season, plus shamisen stings on pickups).
+Done: everything above is playable from the repo (`npm run dev`), including sound, five set pieces and online rooms. Fixed along the way: road obstacles were not mapped onto the spline, so on any turn or climb they rendered off the road (the "floating barriers" report); and the season and province cycles were both 128 chunks, which froze each province in one season and made the avalanche unreachable. Open: the shared one-file artifact build predates all of this and needs re-bundling; the music has only been checked by machine (every note in scale, every event wired) — tune the mix by ear; more set pieces (festival float, lantern festival, fireworks); reconnection during an online race; a public server.
 
 Build toward this vision. When in doubt: prettier, faster, more Japanese, more readable, never shaky.

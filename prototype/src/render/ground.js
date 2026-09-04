@@ -28,7 +28,7 @@ const vert = /* glsl */`
 const frag = /* glsl */`
   precision highp float;
   #include <fog_pars_fragment>
-  varying vec2 vP; uniform float uSurface, uRoadMin, uRoadMax;
+  varying vec2 vP; uniform float uSurface, uRoadMin, uRoadMax, uForkS0, uForkL;
   uniform float uTime, uBiome, uSeason, uSnow, uNight, uWet, uLightN;
   uniform vec4 uLight[${MAX_LIGHTS}]; uniform vec3 uLightCol[${MAX_LIGHTS}];
   ${NOISE_GLSL}
@@ -41,13 +41,17 @@ const frag = /* glsl */`
   }
   void main() {
     vec2 p = vP; float x = p.x, z = p.y, ax = abs(x);
-    float road   = smoothstep(uRoadMin - 0.1, uRoadMin + 0.05, x) * (1.0 - smoothstep(uRoadMax - 0.05, uRoadMax + 0.1, x));
+    // under a fork the road is painted on the land only while the split roads are still (nearly) one, so a split
+    // starts, and a merge ends, on a single road; in between the land shows through the gaps as land
+    float fk = uForkL > 0.5 ? clamp((z - uForkS0) / uForkL, 0.0, 1.0) : 0.0;
+    float paintK = 1.0 - smoothstep(0.02, 0.22, 0.5 - 0.5 * cos(6.2831853 * fk));
+    float road   = smoothstep(uRoadMin - 0.1, uRoadMin + 0.05, x) * (1.0 - smoothstep(uRoadMax - 0.05, uRoadMax + 0.1, x)) * paintK;
     float de     = min(x - uRoadMin, uRoadMax - x);                                        // signed distance inside the road
     float lb     = abs(fract(x / ${LANE_W.toFixed(2)} + 0.5) - 0.5) * ${LANE_W.toFixed(2)};   // distance to nearest lane boundary (x = ±1.1, ±3.3, ±5.5)
     float lc     = abs(fract(x / ${LANE_W.toFixed(2)}) - 0.5) * ${LANE_W.toFixed(2)};         // distance to nearest lane centre
     float guide  = (1.0 - smoothstep(0.035, 0.08, lb)) * step(0.5, ax) * road;             // subtle lane guides
-    float centre = (1.0 - smoothstep(0.06, 0.12, ax)) * step(uRoadMin, -0.5);               // centre line only when both halves exist
-    float edge   = 1.0 - smoothstep(0.05, 0.11, abs(de));                                  // crisp edge line at the road edges
+    float centre = (1.0 - smoothstep(0.06, 0.12, ax)) * step(uRoadMin, -0.5) * paintK;      // centre line only when both halves exist
+    float edge   = (1.0 - smoothstep(0.05, 0.11, abs(de))) * paintK;                       // crisp edge line at the road edges
     float n      = fbm(p * 0.7);
     float dist   = smoothstep(1.4, 33.0, -de);                                              // verge darkening away from the road
 
@@ -179,7 +183,7 @@ export function makeGroundMaterial() {
   return new THREE.ShaderMaterial({ side: THREE.DoubleSide,
     vertexShader: vert, fragmentShader: frag, fog: true,
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-      uZ0: { value: 0 }, uBent: { value: 0 }, uSurface: { value: 0 }, uRoadMin: { value: -6.6 }, uRoadMax: { value: 6.6 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
+      uZ0: { value: 0 }, uBent: { value: 0 }, uSurface: { value: 0 }, uRoadMin: { value: -6.6 }, uRoadMax: { value: 6.6 }, uForkS0: { value: 0 }, uForkL: { value: 0 }, uTime: { value: 0 }, uBiome: { value: 0 }, uSeason: { value: 0 },
       uSnow: { value: 0 }, uNight: { value: 0 }, uWet: { value: 0 }, uLightN: { value: 0 },
       uLight: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()) },
       uLightCol: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Color()) },

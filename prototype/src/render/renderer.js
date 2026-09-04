@@ -314,7 +314,7 @@ export class Renderer {
       let m = this.deckPool.free.pop();
       if (!m) {
         const g = new THREE.BoxGeometry(1, 0.6, CHUNK_LEN, 6, 1, 18).translate(0, -0.3, 0);
-        g.userData.base = g.attributes.position.array.slice();
+        g.userData.base = g.attributes.position.array.slice(); g.userData.baseN = g.attributes.normal.array.slice();   // which face a vertex belongs to, before bending
         g.setAttribute('aTrack', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
         m = new THREE.Mesh(g, makeGroundMaterial()); m.material.uniforms.uBent.value = 1; m.frustumCulled = false; m.userData.pool = 'deck'; this.root.add(m);
       }
@@ -460,15 +460,18 @@ export class Renderer {
   _bendDeck(deck, z0, f, g) {
     const lanes = LANES_TOTAL / f.groups, x0 = roadX(g * lanes) - LANE_W / 2, x1 = roadX(g * lanes + lanes - 1) + LANE_W / 2;
     const cx = (x0 + x1) / 2;
-    const geo = deck.geometry, base = geo.userData.base, pos = geo.attributes.position.array, tr = geo.attributes.aTrack.array;
+    const geo = deck.geometry, base = geo.userData.base, baseN = geo.userData.baseN, pos = geo.attributes.position.array, tr = geo.attributes.aTrack.array;
     for (let i = 0; i < geo.attributes.position.count; i++) {
-      const sAbs = z0 + CHUNK_LEN / 2 + base[i * 3 + 2];
-      // Where the roads are still together the decks abut exactly and read as one road; a
-      // verge grows on each as they come apart, so the split starts from a single point.
-      const width = x1 - x0 + 2 * this._deckVerge(sAbs);
-      const x = cx + base[i * 3] * width, h = base[i * 3 + 1];
+      const sAbs = z0 + CHUNK_LEN / 2 + base[i * 3 + 2], e = this._forkRamp(sAbs), top = baseN[i * 3 + 1] > 0.5;
+      // Where the roads are still together the decks abut exactly, paper-thin, and read as one
+      // road; as they come apart each grows a verge and a slab's worth of thickness, so the
+      // split starts from a single point and nothing stands up out of the road at either end.
+      const width = x1 - x0 + 2 * this._deckVerge(sAbs), thick = Math.min(1, e * 4);
+      const x = cx + base[i * 3] * width, h = base[i * 3 + 1] * thick;
       this._forkOffset(x, sAbs, g, _OFF); this.track.map(x + _OFF.x, h + _OFF.h, sAbs, 0, _V3);
-      pos[i * 3] = _V3.x; pos[i * 3 + 1] = _V3.y; pos[i * 3 + 2] = _V3.z; tr[i * 2] = x; tr[i * 2 + 1] = sAbs;
+      pos[i * 3] = _V3.x; pos[i * 3 + 1] = _V3.y; pos[i * 3 + 2] = _V3.z;
+      // the top paints by where it is (road, then a grassy shoulder); the sides and underside paint as the road slab itself
+      tr[i * 2] = top ? x : (x < cx ? x0 + 0.6 : x1 - 0.6); tr[i * 2 + 1] = sAbs;
     }
     geo.attributes.position.needsUpdate = true; geo.attributes.aTrack.needsUpdate = true; geo.computeVertexNormals();
     const u = deck.material.uniforms; u.uRoadMin.value = x0; u.uRoadMax.value = x1;
@@ -492,8 +495,8 @@ export class Renderer {
     const floor = this.floorPool.take(); this._bendFloor(floor, c.z0, fk ? FORK_DROP : 0);
     const u = floor.material.uniforms; u.uZ0.value = c.z0; u.uBiome.value = biome; u.uSeason.value = season; u.uSnow.value = pv.snow ? 0.9 : snowAt(c.index);
     u.uSurface.value = surfaceOf(this.world.seed, c.index);
-    // under a fork the land carries no road of its own: the roads are the decks above it
-    u.uRoadMin.value = fk ? -1000 : -ROAD_HALF; u.uRoadMax.value = fk ? -999 : ROAD_HALF;
+    // under a fork the land keeps its road only where the split roads are still one (the shader fades it with the split)
+    u.uRoadMin.value = -ROAD_HALF; u.uRoadMax.value = ROAD_HALF; u.uForkS0.value = fk ? fk.start * CHUNK_LEN : 0; u.uForkL.value = fk ? fk.len * CHUNK_LEN : 0;
     const v = { floor, decks: [], meshes: [], coins: [], powers: [], rollers: [], thrown: [], lights: [] };
     if (fk) {
       for (let g = 0; g < fk.groups; g++) {
@@ -501,9 +504,16 @@ export class Renderer {
         const du = deck.material.uniforms; du.uZ0.value = c.z0; du.uBiome.value = biome; du.uSeason.value = season; du.uSnow.value = u.uSnow.value; du.uSurface.value = u.uSurface.value;
         TRACK.fork = g;   // the railings sit on the seam between roads: place them as this road's, not by where they stand
         for (let b = 0; b < CHUNK_LEN / BEAT_LEN; b++) {
-          const s = c.z0 + BEAT_LEN * (b + 0.5); if (this._forkRamp(s) < 0.12) continue;      // no railings until the roads are actually apart
-          const vg = this._deckVerge(s);
-          for (const x of [x0 - vg + 0.12, x1 + vg - 0.12]) { const r = this.pools.forkRail.take(); r.position.set(x, 0, s); r.rotation.set(0, 0, 0); placeMesh(r); v.meshes.push(r); }
+          const s = c.z0 + BEAT_LEN * (b + 0.5), vg = this._deckVerge(s);
+          // A railing is only as tall as the drop beside it: on the seam between two roads it rises with the gap
+          // between them, on an outer edge with the road's own lift. Both are nothing at the split and the merge,
+          // so every railing grows out of, and shrinks back into, the single point where the roads part.
+          this._forkOffset(0, s, g, _OFF); const ox = _OFF.x, oh = _OFF.h;
+          const beside = (n) => { if (n < 0 || n >= fk.groups) return clamp01(oh / 2.2); this._forkOffset(0, s, n, _OFF); return clamp01((Math.abs(ox - _OFF.x) - 0.5) / 2.2); };
+          for (const [x, hK] of [[x0 - vg + 0.12, beside(g - 1)], [x1 + vg - 0.12, beside(g + 1)]]) {
+            if (hK < 0.03) continue;
+            const r = this.pools.forkRail.take(); r.position.set(x, 0, s); r.rotation.set(0, 0, 0); r.scale.set(1, hK, 1); placeMesh(r); v.meshes.push(r);
+          }
         }
         TRACK.fork = null;
       }

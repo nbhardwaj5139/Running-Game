@@ -107,6 +107,12 @@ const G = {
     for (let i = 0; i < 5; i++) { const a = i * 1.26, dx = Math.cos(a), dz = Math.sin(a); parts.push(paint(cyl(0.03, 0.06, 1.5, 4), WOOD, { p: [dx * 0.55, 2.95, dz * 0.55], r: towards(dx * 0.8, 1, dz * 0.8) })); } return merge(parts); },   // ~3.5 m
   snow: () => { const g = sph(1, 8); g.scale(1, 0.35, 1); return g; },
   mist: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  // a samurai in two parts: legs stand still, the torso (pivot at the hip) bows as a runner passes
+  samuraiLegs: () => merge([paint(box(0.52, 0.86, 0.4), '#1b1f33', { p: [0, 0.43, 0] }), paint(box(0.2, 0.06, 0.3), '#3a2a1e', { p: [-0.14, 0.03, 0.04] }), paint(box(0.2, 0.06, 0.3), '#3a2a1e', { p: [0.14, 0.03, 0.04] })]),
+  samuraiTorso: () => merge([paint(box(0.56, 0.62, 0.34), '#2a3350', { p: [0, 0.31, 0] }), paint(box(0.62, 0.12, 0.38), '#c9302c', { p: [0, 0.06, 0] }),
+    paint(box(0.2, 0.3, 0.2), '#2a3350', { p: [0, 0.68, 0] }), paint(box(0.14, 0.44, 0.14), '#2a3350', { p: [-0.36, 0.34, 0.02], r: [0, 0, 0.12] }), paint(box(0.14, 0.44, 0.14), '#2a3350', { p: [0.36, 0.34, 0.02], r: [0, 0, -0.12] }),
+    paint(sph(0.15, 8), '#f1c9a5', { p: [0, 0.86, 0] }), paint(cone(0.42, 0.22, 10), '#c9a978', { p: [0, 1.0, 0] }),
+    paint(box(0.05, 0.05, 0.95), '#2a2a2a', { p: [-0.3, 0.1, -0.05], r: [0, 0, 0] }), paint(box(0.03, 0.03, 0.6), '#e8ecf4', { p: [-0.3, 0.1, -0.5], r: [0, 0, 0] })]),
   lantern: () => merge([paint(box(0.8, 0.25, 0.8), STONE_D, { p: [0, 0.12, 0] }), paint(cyl(0.13, 0.16, 1.0), STONE, { p: [0, 0.75, 0] }), paint(box(0.8, 0.12, 0.8), STONE_D, { p: [0, 1.3, 0] }),
     ...[-1, 1].flatMap(a => [-1, 1].map(b => paint(box(0.1, 0.5, 0.1), STONE_D, { p: [a * 0.22, 1.6, b * 0.22] }))), paint(box(0.7, 0.08, 0.7), STONE_D, { p: [0, 1.88, 0] }),
     paint(cone(0.62, 0.4, 4), STONE, { p: [0, 2.1, 0], r: [0, Math.PI / 4, 0] }), paint(sph(0.1), STONE, { p: [0, 2.35, 0] })]),
@@ -208,6 +214,7 @@ export function buildScenery(parent, neonFactory) {
     trunk: new Pool(parent, G.trunk(), TRUNK, 360), cedar: new Pool(parent, G.cedar(), LIT, 220), blob: new Pool(parent, G.blob(), LIT, 140), pine: new Pool(parent, G.pine(), LIT, 60),
     bamboo: new Pool(parent, G.bamboo(), PAINT, 70), bare: new Pool(parent, G.bare(), PAINT, 70), snowCap: new Pool(parent, G.snow(), SNOW, 560, false),
     glowSph: new Pool(parent, sph(1, 8), GLOWM, 100, false), glowBox: new Pool(parent, box(1, 1, 1), GLOWM, 60, false),
+    samuraiLegs: new Pool(parent, G.samuraiLegs(), PAINT, 30), samuraiTorso: new Pool(parent, G.samuraiTorso(), PAINT, 30),
     lantern: new Pool(parent, G.lantern(), PAINT, 40), torii: new Pool(parent, toriiGeo(2.8, 2.2, 0.13), PAINT, 16), chochin: new Pool(parent, G.chochin(), CHOCHIN, 12, false),
     mist: new Pool(parent, G.mist(), MIST, 24, false), rock: new Pool(parent, new THREE.IcosahedronGeometry(1, 0), LIT, 460),
     lamp: new Pool(parent, G.lamp(), PAINT, 40), viaduct: new Pool(parent, G.viaduct(L), PAINT, 10), signal: new Pool(parent, G.signal(), PAINT, 20), awning: new Pool(parent, G.awning(), LIT, 30),
@@ -221,7 +228,7 @@ export function buildScenery(parent, neonFactory) {
   const wires = new LinePool(parent, 1200);                                              // 8 city/suburb chunks ≈ 870 segments
   const allPools = [...Object.values(P).filter(p => p instanceof Pool), ...P.bld.map(b => b.pool), wires];
   const flushAll = () => { for (const p of allPools) p.flush(); };
-  const S = { time: 0, night: 0, season: 0, views: new Map(), blink: [], signals: [], gulls: [], beacons: [], blinkPhase: -1, sigPhase: -1 };
+  const S = { time: 0, night: 0, season: 0, views: new Map(), blink: [], signals: [], gulls: [], beacons: [], samurai: [], blinkPhase: -1, sigPhase: -1, s: 0 };
 
   // ---- neon signs: the renderer's factory makes them; we cache by text so a word never costs a second texture ----
   const neonFree = new Map();
@@ -236,7 +243,7 @@ export function buildScenery(parent, neonFactory) {
 
   // ---- per-chunk view: what was placed, so release() can free it ----
   function newView(chunk, ctx) {
-    const V = { index: chunk.index, z0: ctx.z0, len: ctx.len, rng: ctx.rng, season: ctx.season, snow: ctx.season === 3, col: new THREE.Color(), inst: [], meshes: [], neons: [], wires: [], nLights: 0 };
+    const V = { index: chunk.index, z0: ctx.z0, len: ctx.len, rng: ctx.rng, season: ctx.season, snow: ctx.season === 3, shrine: !!ctx.shrine, col: new THREE.Color(), inst: [], meshes: [], neons: [], wires: [], nLights: 0 };
     V.kit = seasonKit(ctx.season, seasonBlend(chunk.index), ctx.rng);
     V.take = (pool, m, c) => { const i = pool.take(m, c); if (i >= 0) V.inst.push(pool, i); return i; };
     V.single = (mp, x, y, z, ry = 0) => { const m = mp.take(); m.position.set(x, y, z); m.rotation.y = ry; placeMesh(m); V.meshes.push(mp, m); return m; };
@@ -290,6 +297,14 @@ export function buildScenery(parent, neonFactory) {
       for (let i = 0; i < 7; i++) { const t = kit.bambooTint(); V.take(P.bamboo, compose(cx + (rng() - 0.5) * 5, 0, cz + (rng() - 0.5) * 7, 1, 0.8 + rng() * 0.5, 1, rng() * TAU), V.col.setRGB(t[0], t[1], t[2])); }
     }
     for (let i = 0; i < 2; i++) { const s = i ? 1 : -1; lantern(V, s * 9.0, z0 + 5 + i * 18 + rng() * 6, s < 0 ? 0.3 : -0.3); }
+    if (V.shrine) {                                                                                     // the shrine road is lined with retainers, who bow as you pass
+      for (let i = 0; i < 3; i++) {
+        const s = (i + V.index) % 2 ? 1 : -1, x = s * (7.8 + rng() * 0.4), z = z0 + 4 + i * 11 + rng() * 5;   // on the verge, inside the lantern line
+        V.take(P.samuraiLegs, composeT(x, 0, z, 1, 1, 1, 0, Math.PI, 0));
+        const st = { chunk: V.index, x, z, bow: 0, i: V.take(P.samuraiTorso, composeT(x, 0.86, z, 1, 1, 1, 0, Math.PI, 0)) };
+        if (st.i >= 0) S.samurai.push(st);
+      }
+    }
     if (V.index % 2 === 0) { const z = z0 + 18; V.take(P.chochin, compose(0, 0, z), V.col.setRGB(1, 1, 1)); V.light(0, z, 3.0, 1.0, [1.0, 0.75, 0.45]); }
     if (V.index % 4 === 2) {                                                                            // a small shrine up a side path
       const z = z0 + 20; V.single(P1.shrine, -15.5, 0, z, -Math.PI / 2);
@@ -428,12 +443,12 @@ export function buildScenery(parent, neonFactory) {
     for (let k = 0; k < V.meshes.length; k += 2) V.meshes[k].give(V.meshes[k + 1]);
     for (const m of V.neons) neonGive(m);
     for (const i of V.wires) wires.give(i);
-    for (const key of ['blink', 'signals', 'gulls', 'beacons']) S[key] = S[key].filter(e => e.chunk !== index);
+    for (const key of ['blink', 'signals', 'gulls', 'beacons', 'samurai']) S[key] = S[key].filter(e => e.chunk !== index);
     flushAll();
   }
   const _c = new THREE.Color();
   function update(dt, state = {}) {
-    S.time += dt; if (state.night !== undefined) S.night = state.night; if (state.season !== undefined) S.season = state.season;
+    S.time += dt; if (state.night !== undefined) S.night = state.night; if (state.season !== undefined) S.season = state.season; if (state.s !== undefined) S.s = state.s;
     const n = S.night, winter = S.season === 3;
     BLD.emissiveIntensity = 0.12 + 1.3 * n; BLD.emissive.setRGB(1, winter ? 0.82 : 0.95, winter ? 0.6 : 0.9);              // windows warm up in winter
     GLOWM.color.setScalar(0.55 + 0.75 * n); CHOCHIN.color.setScalar(0.5 + 0.7 * n);
@@ -442,8 +457,12 @@ export function buildScenery(parent, neonFactory) {
     const sp = Math.floor(S.time / 5) % 2;                                                                // crosswalk signals: 5 s walk / 5 s stop
     if (sp !== S.sigPhase) { S.sigPhase = sp; for (const s of S.signals) { P.glowBox.mesh.setColorAt(s.r, sp ? RED_ON : RED_OFF); P.glowBox.mesh.setColorAt(s.g, sp ? GREEN_OFF : GREEN_ON); P.glowBox.dirty = true; } }
     for (const g of S.gulls) P.gull.set(g.i, composeT(g.x + Math.sin(S.time * 0.3 + g.ph) * 1.5, g.y + Math.sin(S.time * 1.7 + g.ph) * 0.4, g.z, 1, 1, 1, 0, g.ry, Math.sin(S.time * 7 + g.ph) * 0.35));
+    for (const st of S.samurai) {                                                                        // a deep bow as the runner comes up, straightening once they are past
+      const want = S.s > st.z - 16 && S.s < st.z + 5 ? 1 : 0; st.bow += (want - st.bow) * Math.min(1, dt * (want ? 5 : 2.5));
+      P.samuraiTorso.set(st.i, composeT(st.x, 0.86, st.z, 1, 1, 1, -st.bow * 1.05, Math.PI, 0));
+    }
     for (const b of S.beacons) { const k = 0.6 + 2.6 * Math.pow(Math.max(0, Math.cos(S.time * 1.4 + b.ph)), 3); P.glowSph.mesh.setColorAt(b.i, _c.setRGB(k, k * 0.95, k * 0.8)); P.glowSph.dirty = true; }
-    P.glowSph.flush(); P.glowBox.flush(); P.gull.flush();
+    P.glowSph.flush(); P.glowBox.flush(); P.gull.flush(); P.samuraiTorso.flush();
   }
   return { dress, release, update };
 }

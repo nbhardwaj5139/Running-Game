@@ -221,13 +221,14 @@ export const KAIJU = [
   { id: 'umibozu', jp: '海坊主', en: 'Umibōzu, the sea giant', throws: ['wide', 'wave', 'drusen'], color: [0.3, 0.8, 1.0] },
   { id: 'gashadokuro', jp: 'がしゃどくろ', en: 'Gashadokuro, the starving skeleton', throws: ['stalk', 'drusen', 'wide'], color: [1.0, 0.25, 0.2] },
   { id: 'yukioni', jp: '雪鬼', en: 'Yuki-Oni, the snow ogre', throws: ['stalk', 'wave', 'drusen'], color: [0.6, 0.9, 1.0] },
+  { id: 'gojira', jp: '呉爾羅', en: 'Gojira, the king of the monsters', throws: ['stalk', 'drusen', 'wide'], color: [1.7, 0.55, 0.15], fire: true },   // breathes fire: what it throws lands burning
 ];
-/** The kaiju haunting chunk `index`, or null. Its side of the road alternates per season. */
+/** The kaiju haunting chunk `index`, or null. The roster takes turns, one per season section; its side of the road alternates. */
 export function kaijuOf(index) {
   const k = index % SEASON_LEN;
   if (index < SEASON_LEN - KAIJU_CHUNKS || k < SEASON_LEN - KAIJU_CHUNKS) return null;
-  const season = seasonOf(index);
-  return { ...KAIJU[season], season, side: Math.floor(index / SEASON_LEN) % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
+  const season = seasonOf(index), section = Math.floor(index / SEASON_LEN);
+  return { ...KAIJU[section % KAIJU.length], season, side: section % 2 ? 1 : -1, phase: k - (SEASON_LEN - KAIJU_CHUNKS) };
 }
 export const POWERS = ['shield', 'magnet', 'dash', 'x2', 'heal', 'jetpack', 'foxfire', 'dawn', 'susanoo', 'kagura', 'guide', 'rocket'];
 const POWER_WEIGHTS = [0.14, 0.12, 0.12, 0.09, 0.1, 0.12, 0.07, 0.05, 0.06, 0.07, 0.06, 0.08];

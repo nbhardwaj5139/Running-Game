@@ -85,6 +85,19 @@ function kaijuRig(k) {
       add(new THREE.CylinderGeometry(0.8, 0.7, 12, 6), bone, [5.6, 19, 0]);
       arm.position.set(-5.4, 24.5, 0); add(new THREE.CylinderGeometry(0.8, 0.7, 12, 6), bone, [0, -6, 0], [0, 0, 0], arm); add(new THREE.SphereGeometry(1.6, 8, 6), bone, [0, -12.4, 0], [0, 0, 0], arm);
       eyes(30, -4.2, 0.9, 1.6); break; }
+    case 'gojira': { const hide = mat(0x2f3a30), belly = mat(0x6b7360), plate = mat(0xb9c4a8, 0.12);
+      // the classic silhouette: a heavy body leaning forward over thick legs, a long tail, a row of dorsal plates, and a jaw that opens for the breath
+      add(new THREE.BoxGeometry(9, 13, 8), hide, [0, 14, 0], [0.18, 0, 0]); add(new THREE.BoxGeometry(6, 10, 2), belly, [0, 13, 4.2], [0.18, 0, 0]);
+      add(new THREE.CylinderGeometry(2.6, 3.1, 9, 8), hide, [-3.2, 4.5, 0]); add(new THREE.CylinderGeometry(2.6, 3.1, 9, 8), hide, [3.2, 4.5, 0]);
+      for (let i = 0; i < 5; i++) add(new THREE.CylinderGeometry(2.4 - i * 0.42, 2.8 - i * 0.42, 6, 8), hide, [0, 7 - i * 1.4, -6 - i * 5.2], [1.25 + i * 0.08, 0, 0]);   // the tail, curving down and back
+      for (let i = 0; i < 7; i++) add(new THREE.ConeGeometry(1.7 - Math.abs(i - 3) * 0.3, 3.6 - Math.abs(i - 3) * 0.6, 4), plate, [0, 21 - i * 2.1, -4.2 - i * 1.6], [-0.35, 0, 0]);   // dorsal plates
+      add(new THREE.CylinderGeometry(1.5, 1.2, 8, 8), hide, [6.2, 16, 1.5], [0.3, 0, -0.4]);
+      arm.position.set(-6.2, 18, 1.5); add(new THREE.CylinderGeometry(1.5, 1.2, 8, 8), hide, [0, -4, 0], [0, 0, 0], arm);
+      const head = new THREE.Group(); head.position.set(0, 24.5, 2.5); g.add(head);
+      add(new THREE.BoxGeometry(5.2, 4.6, 6.5), hide, [0, 1.2, 1.2], [0, 0, 0], head); add(new THREE.BoxGeometry(4.6, 1.6, 6.2), hide, [0, -1.4, 1.8], [0.35, 0, 0], head);   // skull and the lower jaw
+      for (let i = 0; i < 4; i++) for (const sx of [-1, 1]) add(new THREE.ConeGeometry(0.28, 0.9, 4), plate, [sx * (1.6 - i * 0.1), -0.7, 2.4 + i * 0.6], [Math.PI, 0, 0], head);   // teeth
+      const mouth = new THREE.Group(); mouth.position.set(0, -0.6, 4.6); head.add(mouth); g.userData.mouth = mouth;
+      for (const sx of [-1, 1]) add(new THREE.SphereGeometry(0.7, 8, 8), eye, [sx * 1.8, 2.4, 4.0], [0, 0, 0], head); break; }
     default: { const ice = mat(0xbfe6ff, 0.15), dark = mat(0x5a7ea0);
       add(new THREE.BoxGeometry(10.5, 14, 7.5), ice, [0, 15, 0]); add(new THREE.BoxGeometry(6.5, 6.5, 6.5), ice, [0, 25.5, 0]);
       add(new THREE.ConeGeometry(1.3, 4.5, 6), dark, [-2.2, 31, 0], [0, 0, 0.25]); add(new THREE.ConeGeometry(1.3, 4.5, 6), dark, [2.2, 31, 0], [0, 0, -0.25]);
@@ -95,7 +108,7 @@ function kaijuRig(k) {
       eyes(26.2, -3.4, 0.8, 1.6); }
   }
   g.visible = false;
-  return { group: g, arm, k };
+  return { group: g, arm, k, mouth: g.userData.mouth || null };
 }
 /** What each kaiju throws, as pooled geometry: { type: { geo, mat, scale } }. */
 function kaijuProps(obstacles) {
@@ -107,12 +120,14 @@ function kaijuProps(obstacles) {
   const snowball = paint(sph(0.5, 10), [0.96, 0.97, 1.0], { p: [0, 0.5, 0], s: [1.2, 1, 1.2] });
   const boulder = obstacles.mountain?.drusen?.[0], boat = obstacles.coast?.wide?.[0], buoy = obstacles.coast?.drusen?.[2] || obstacles.coast?.drusen?.[0];
   const bamboo = obstacles.mountain?.stalk?.[1], log = obstacles.mountain?.drusen?.[1];
+  const cityStalk = obstacles.city?.stalk?.[0], cityLow = obstacles.city?.drusen?.[0], truck = obstacles.city?.wide?.[0];
   const P = (geo, mat, scale = 1) => ({ geo, mat, scale });
   return {
     daidarabotchi: { stalk: boulder && P(boulder.geo, boulder.mat, 2.6), drusen: boulder && P(boulder.geo, boulder.mat, 1.1) },
     umibozu: { wide: boat && P(boat.geo, boat.mat, 1), drusen: buoy && P(buoy.geo, buoy.mat, 1) },
     gashadokuro: { stalk: P(boneSpike, PAINT_REF, 1), drusen: P(skull, PAINT_REF, 1), wide: P(ribs, PAINT_REF, 1) },
     yukioni: { stalk: P(iceBlock, PAINT_REF, 1), drusen: P(snowball, PAINT_REF, 1) },
+    gojira: { stalk: cityStalk && P(cityStalk.geo, cityStalk.mat, 1.15), drusen: cityLow && P(cityLow.geo, cityLow.mat, 1), wide: truck && P(truck.geo, truck.mat, 1) },   // city wreckage, and it arrives on fire
     // set pieces that throw: the tsunami washes boats and buoys onto the road, the fire drops
     // burning bamboo and logs, and the Hakone trail takes boulders down the slope
     tsunami: { wide: boat && P(boat.geo, boat.mat, 1), drusen: buoy && P(buoy.geo, buoy.mat, 1) },
@@ -516,7 +531,7 @@ export class Renderer {
       // the barrel and the buoy roll across the road; the salaryman and the Shiba run across it, facing the way they go
       if (cell.type === 'roller') { const rolls = biome === 0 || biome === 3; m.rotation.order = rolls ? 'YXZ' : 'XYZ'; v.rollers.push({ m, cell, rolls, x: null, yaw: rolls ? 0 : Math.PI }); }
     }
-    this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light });
+    this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light, shrine: !!pv.shrine });
     this.grass.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x9a55, c.index)), season, biome);
     this.flowers.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xf10e, c.index)), season, biome);
     this.litter.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x1eaf, c.index)), season);
@@ -556,6 +571,7 @@ export class Renderer {
     for (const m of v.meshes) this.pools[m.userData.pool]?.give(m);
     for (const t of v.thrown) if (t.plank) { this.pools.plank.give(t.plank); t.plank = null; }
     if (v.flames) { for (const f of v.flames) this.flames.give(f.i); this.flames.flush(); }
+    for (const t of v.thrown) if (t.flames) { for (const i of t.flames) this.flames.give(i); t.flames = null; if (this.kaijuState.target === t) this.kaijuState.target = null; }
     for (const coin of v.coins) { this.coinPool.give(coin.i); const k = this.coins.indexOf(coin); if (k >= 0) this.coins.splice(k, 1); }
     this.scenery.release(c.index); this.grass.release(c.index); this.flowers.release(c.index); this.litter.release(c.index); this.deer.release(c.index);
     this.views.delete(c.index);
@@ -637,7 +653,7 @@ export class Renderer {
     this.sun.color.copy(th.sun); this.sun.intensity = th.sunIntensity; this.sun.position.set(60, 46 - 30 * night, 140);
     this.hemi.color.copy(th.hemiSky); this.hemi.groundColor.copy(th.hemiGround); this.hemi.intensity = th.hemiIntensity;
     this.ambient.intensity = th.ambient; this.scene.fog.color.copy(th.fog).lerp(new THREE.Color(0.55, 0.58, 0.64), Math.min(1, wx.fog * 0.8 + wx.rain * 0.5)); this.base.material.color.copy(th.fog).multiplyScalar(0.55);
-    const fire = w.setpiece === 'fire';
+    const fire = w.setpiece === 'fire' || !!w.kaiju?.fire;   // the forest fire, or Gojira on the skyline: smoke, embers, firelight
     const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain, w.setpiece === 'tsunami' ? 1 : 0);
     if (fire) { this.scene.fog.color.lerp(_COL.setRGB(0.5, 0.27, 0.12), 0.6); this.hemi.color.lerp(_COL.setRGB(1, 0.55, 0.25), 0.5); this.ambient.intensity += 0.2; }   // smoke and firelight
     // weather → visibility, sky mood, lightning
@@ -652,7 +668,7 @@ export class Renderer {
     this.wind.set(0.35 * Math.sin(this.time * 0.13), 0, 1).normalize().multiplyScalar(windStrength);
     this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread: Math.min(1, dread + wx.rain * 0.5 + wx.fog * 0.3), water: pv.water, fujiScale: pv.fuji }, this.camera);
     this.grass.update(dt, this.wind, night, vSeason); this.flowers.update(dt, this.wind, night, vSeason);
-    this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt });
+    this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt, s: w.distance });
     this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread * 0.45, wx.rain * 0.45, wx.id === 'blizzard' ? 0.22 : 0), fire });
     const active = w.runners.filter(r => !r.disabled);
     this.deer.update(dt, w.distance);
@@ -757,6 +773,7 @@ export class Renderer {
     // ---- kaiju: rises beside the road for the last chunks of a season, stomps, and throws
     const K = this.kaijuState, kj = w.kaiju;
     if (kj && kj.id !== K.id) { K.id = kj.id; K.side = kj.side; K.y = -42; K.throwT = 9; }
+    if (!this.breath) { this.breath = []; for (let i = 0; i < 14; i++) this.breath.push(this.flames.take(_M4.makeScale(0, 0, 0))); }
     for (const [id, r] of Object.entries(this.kaijuRigs)) {
       const active = id === K.id;
       const targetY = active && kj ? 0 : -42;
@@ -767,6 +784,19 @@ export class Renderer {
       r.group.position.set(K.side * 7, K.y * 1.4 + stomp * 1.4 - 1.4, w.distance + 108); r.group.scale.set(K.side * 1.4, 1.4, 1.4); r.group.rotation.set(0, K.side * 0.5, 0); placeMesh(r.group);
       K.throwT += dt; const swing = K.throwT < 0.55 ? Math.sin((K.throwT / 0.55) * Math.PI) : 0;
       r.arm.rotation.x = -0.35 - swing * 1.7; r.arm.rotation.z = -0.25;
+      if (r.mouth) {
+        // Gojira: the jaw drops and a tongue of flame reaches from the mouth to whatever it just threw, for the first moment of its flight
+        const breathing = K.target && !K.target.landed && K.throwT < 1.0 && K.target.m.visible;
+        r.mouth.parent.children[1].rotation.x = 0.35 + (breathing ? 0.5 : 0);
+        r.mouth.getWorldPosition(_V3b); const to = K.target?.m.position;
+        for (let i = 0; i < this.breath.length; i++) {
+          const q = (i + 0.5) / this.breath.length;
+          if (!breathing || !to) { this.flames.set(this.breath[i], _M4.makeScale(0, 0, 0)); continue; }
+          _V3.lerpVectors(_V3b, to, q * Math.min(1, K.throwT * 2.2)); _V3.y += Math.sin(q * Math.PI) * 2;
+          const k = (1.2 + 2.8 * Math.sin(q * Math.PI)) * (1 - K.throwT * 0.8) * (0.85 + 0.3 * Math.sin(this.time * 31 + i));
+          this.flames.set(this.breath[i], _M4.compose(_V3, _Q1.identity(), _V3c.set(k, k * 1.6, k)));
+        }
+      }
       if (!kj) K.id = K.y <= -41 ? null : K.id;
     }
     for (const v of this.views.values()) for (const t of v.thrown) {
@@ -780,7 +810,8 @@ export class Renderer {
           : by === 'fire' ? { x: ((t.cell.v ?? 0) % 2 ? 1 : -1) * 14, y: 10, z: t.cell.z + 5 }
           : by === 'rockfall' ? { x: -26, y: 16, z: t.cell.z + 12 }        // down the slope on the uphill side of the trail
           : { x: K.side * 2, y: 30, z: w.distance + 100 };
-        if (!SETPIECE[by]) K.throwT = 0; t.m.visible = true;
+        if (!SETPIECE[by]) { K.throwT = 0; K.target = t; } t.m.visible = true;
+        if (by === 'gojira' && !t.flames) { t.flames = []; for (let i = 0; i < 3; i++) t.flames.push(this.flames.take(_M4.makeScale(0, 0, 0))); }   // it arrives burning
       }
       const p = clamp01(1 - (dz - 4) / (lead - 4));
       if (t.cell.by === 'bridge') {
@@ -791,9 +822,9 @@ export class Renderer {
         continue;
       }
       if (t.wave) { t.m.scale.set(1, Math.max(0.001, p), 1); }
-      else { t.m.position.set(lerp(t.start.x, t.x, p), lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9, lerp(t.start.z, t.cell.z, p)); t.m.rotation.set(p * 6 * (t.cell.v % 2 ? 1 : -1), 0, 0); placeMesh(t.m); }
+      else { t.px = lerp(t.start.x, t.x, p); t.py = lerp(t.start.y, 0, p) + Math.sin(p * Math.PI) * 9; t.pz = lerp(t.start.z, t.cell.z, p); t.m.position.set(t.px, t.py, t.pz); t.m.rotation.set(p * 6 * (t.cell.v % 2 ? 1 : -1), 0, 0); placeMesh(t.m); }
       if (p >= 1) {
-        t.landed = true; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); t.m.rotation.set(0, 0, 0); placeMesh(t.m);
+        t.landed = true; t.px = t.x; t.py = 0; t.pz = t.cell.z; t.m.position.set(t.x, t.cell.type === 'gap' ? 0.02 : 0, t.cell.z); t.m.rotation.set(0, 0, 0); placeMesh(t.m);
         const kc = new THREE.Color(...(KAIJU.find(k => k.id === t.cell.by)?.color || [1, 1, 1])).multiplyScalar(1.5);
         this.shock.burst(t.x, t.cell.z, kc);
         // whatever landed throws something off the road: water, snow, or trail dust
@@ -841,6 +872,15 @@ export class Renderer {
     } else if (this.tsunami.visible) {
       this.tsunamiX += 22 * dt; this.tsunami.position.set(this.tsunamiX, -2, w.distance + 26); this.tsunami.rotation.set(0, 0, 0.2); placeMesh(this.tsunami);
       if (this.tsunamiX > 90) { this.tsunami.visible = false; this.tsunamiX = null; }
+    }
+    // whatever Gojira threw keeps burning where it lies, until a runner or a rocket takes it off the road
+    for (const v of this.views.values()) for (const t of v.thrown) if (t.flames) {
+      const on = t.px !== undefined && t.m.visible;
+      t.flames.forEach((fi, i) => {
+        if (!on) { this.flames.set(fi, _M4.makeScale(0, 0, 0)); return; }
+        const k = 1.1 + 0.5 * Math.sin(this.time * 12 + i * 2.1 + t.cell.z), dx = (i - 1) * 0.55 + Math.sin(this.time * 5 + i) * 0.12;
+        this.flames.set(fi, compose(t.px + dx, t.py + 0.15, t.pz + (i % 2 ? 0.3 : -0.3), k * 0.7, k, k * 0.7, 0));
+      });
     }
     // the forest fire: flames flicker on the verges
     for (const v of this.views.values()) if (v.flames) for (const f of v.flames) { const k = f.s * (0.8 + 0.35 * Math.sin(this.time * 11 + f.ph) * Math.sin(this.time * 7.3 + f.ph * 2)); this.flames.set(f.i, compose(f.x + Math.sin(this.time * 5 + f.ph) * 0.15, 0, f.z, k * 0.8, k, k * 0.8, 0)); }

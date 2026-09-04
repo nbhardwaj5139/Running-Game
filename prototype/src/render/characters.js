@@ -22,7 +22,7 @@ export const CHARACTERS = [
 ];
 export const characterById = (id) => CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
 /** Runners read a little small against a six-lane road; this is the base size of every rig. */
-export const CHAR_SCALE = 1.25;
+export const CHAR_SCALE = 1.5;
 
 /** The signature scarf: a band at the neck plus a tail streaming behind. Same shape on every rig. */
 function addScarf(rig, hex, M) {

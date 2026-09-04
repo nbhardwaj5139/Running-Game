@@ -125,7 +125,10 @@ enters co-op, `?seed=`, `?diff=`, `?god=1`, `?mode=`, `?p1=`, `?p2=`, `?bloom=0`
   `TRACK.fork` forces a road index for things that sit on the seam (the railings); the camera
   uses it to stay with `renderer.focus` (your slot online, the fox otherwise).
 - Set pieces are pure functions of chunk index (`setpieceAt`): bridge, avalanche, tsunami,
-  fire, level crossing. Kaiju occupy the last 2 chunks of a season.
+  fire, level crossing. Kaiju occupy the last 2 chunks of a season section; the roster
+  (`KAIJU`, five of them — Gojira has `fire: true`) takes turns by section index. Gojira's
+  thrown wreckage carries flames in the renderer (`t.flames`) and a breath is drawn from the
+  rig's `mouth` to the object it just threw (`K.target`).
 
 ## 5. Networked co-op — the part most likely to need work
 
@@ -192,7 +195,8 @@ socket keeps the network busy so `networkidle` never fires.
 ## 8. Where things stand / open items
 
 **Working:** solo, local 2P, online race, online co-op, generative sound, five set pieces,
-kaiju, 12 powers, eight provinces, four seasons, forks, adaptive performance.
+five kaiju, 12 powers, eight provinces, four seasons, forks, samurai on the shrine road,
+adaptive performance.
 
 **Live blocker (environmental, not code):** the owner is trying to host co-op for a friend
 on Windows. Diagnosed so far:

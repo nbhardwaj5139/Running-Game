@@ -84,9 +84,11 @@ Spring brings cherry petals, summer fireflies and festival lanterns, autumn red 
 
 **Weather** changes per stretch and changes the rules: rain and snow make lane changes slower, high wind and thunderstorms shove you a lane sideways (watch for the gust arrow), fog hides what is coming.
 
-**Kaiju** rise beside the road at the end of every season and throw their hazards onto it: the mountain giant Daidarabotchi, the sea giant Umibōzu, the skeleton Gashadokuro and the snow ogre Yuki-Oni.
+**Kaiju** rise beside the road at the end of every season section and throw their hazards onto it, taking turns: the mountain giant Daidarabotchi, the sea giant Umibōzu, the skeleton Gashadokuro, the snow ogre Yuki-Oni — and Gojira, who breathes fire. Whatever Gojira throws lands burning, and the road fills with smoke and embers while it is on the skyline.
 
 **Set pieces:** a wooden bridge that gives way under you as you cross it; a level crossing in the suburbs (the bell rings, a train crosses ahead, then the gate arms drop across every lane — slide); a tsunami on the Shōnan coast (a wall of water leans over the road, boats and buoys wash across it, surges span the road — jump them); a bamboo forest fire on the Hakone road (burning bamboo and logs fall in from both sides); and an avalanche that chases you down the winter shrine stairs. Seasons shift by one each lap of the itinerary, so Hakone is under snow on your second time round.
+
+**The shrine road** out of Kyoto is lined with samurai retainers who bow as you pass.
 
 **Forks:** every so often the road splits — two or three separate roads pull away from each other, sideways or up onto a raised deck, and come back together 144 m later. A banner calls it a chunk ahead: *pick a side*. You take whichever road your lanes are on when it splits, and there is no way across until the roads meet again; each road is generated so it can be run on its own. Online, the camera stays with your runner's road. On one shared screen (2-player) the road never forks.
 

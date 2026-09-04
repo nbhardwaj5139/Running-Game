@@ -291,8 +291,12 @@ export class GameAudio {
     const roll = this._env(t + 0.25, 0.3, 0.55 * vel, 1.8); this._noise(t + 0.25, roll.end, this._filter('lowpass', 140, 1.5, roll.g));
   }
   /** Kaiju entrance: a taiko roll and a roar. */
-  kaiju() {
+  kaiju(k = null) {
     if (!this.ready) return; const t = this.ctx.currentTime;
+    if (k?.fire) {   // Gojira: a roar on top of the drums — three detuned saws dragged down through a snarling bandpass
+      const { g, end } = this._env(t + 0.35, 0.12, 0.75, 1.8, 0.6); const bp = this._filter('bandpass', 460, 2.2, g); bp.frequency.exponentialRampToValueAtTime(150, end);
+      for (const f of [92, 97.5, 138]) { const o = this._osc('sawtooth', f, t + 0.35, end, bp); o.frequency.exponentialRampToValueAtTime(f * 0.42, end); }
+    }
     for (let i = 0; i < 9; i++) this._drum('taiko', t + i * (0.22 - i * 0.015), 0.5 + i * 0.06, this.sfx);
     const { g, end } = this._env(t + 0.4, 0.3, 0.5, 1.4, 0.4); const lp = this._filter('lowpass', 900, 3, g); lp.frequency.exponentialRampToValueAtTime(160, end);
     const o = this._osc('sawtooth', 58, t + 0.4, end, lp); o.frequency.exponentialRampToValueAtTime(34, end); this._osc('square', 29, t + 0.4, end, this._gain(0.3, lp));
@@ -344,7 +348,7 @@ export class GameAudio {
       case 'transmute': this.transmute(); break;
       case 'gust.telegraph': this.gust(true); break;
       case 'gust': this.gust(false); break;
-      case 'kaiju': if (e.kaiju) this.kaiju(); break;
+      case 'kaiju': if (e.kaiju) this.kaiju(e.kaiju); break;
       case 'setpiece': if (e.kind) this.setpiece(e.kind); break;
       case 'crossing': this.crossing(); break;
       case 'section': this.bell(); break;

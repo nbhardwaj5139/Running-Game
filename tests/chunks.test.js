@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generate, ChunkPool, LANES, TRACKS, LANES_TOTAL, CHUNK_LEN, BEATS, BLOCKING, POWERS, rollerLaneAt, biomeOf, seasonOf, globalLane, trackOf, roadX, BIOME_LEN, SEASON_LEN } from '../prototype/src/core/chunks.js';
+import { generate, ChunkPool, LANES, TRACKS, LANES_TOTAL, CHUNK_LEN, BEATS, BLOCKING, POWERS, rollerLaneAt, biomeOf, seasonOf, globalLane, trackOf, roadX, BIOME_LEN, SEASON_LEN, setpieceAt, kaijuOf, provinceOf } from '../prototype/src/core/chunks.js';
 
 const passable = (mask, l) => !BLOCKING.has(mask[l]);
 /** DP: is there a lane path through a track's rows, one lane step per row? */
@@ -42,6 +42,24 @@ test('every track of every chunk is solvable (2000 seeds x 60 chunks x 2 tracks)
   }
   assert.equal(n, 240000);
   for (const k of POWERS) assert.ok(kinds.has(k), `power ${k} never generated`);
+});
+
+test('set pieces sit where the itinerary says, never on a kaiju chunk, and stay solvable', () => {
+  const found = { bridge: [], avalanche: [], tsunami: [], fire: [], crossing: [] };
+  for (let i = 0; i < 1024; i++) { const sp = setpieceAt(i); if (sp) { found[sp].push(i); assert.ok(!kaijuOf(i), `${sp} on a kaiju chunk ${i}`); } }
+  for (const k of Object.keys(found)) assert.ok(found[k].length > 0, `${k} never happens`);
+  assert.ok(found.tsunami.every(i => provinceOf(i).id === 'shonan')); assert.ok(found.fire.every(i => provinceOf(i).id === 'hakone' && seasonOf(i) !== 3)); assert.ok(found.crossing.every(i => biomeOf(i) === 2 && i % 8 === 5));
+  assert.ok(found.avalanche.every(i => seasonOf(i) === 3 && provinceOf(i).shrine));
+  for (let s = 1; s <= 300; s++) for (const i of [...found.tsunami.slice(0, 3), ...found.fire.slice(0, 3), found.crossing[0], found.crossing[1]]) {
+    const c = generate(s, i); assert.equal(c.setpiece, setpieceAt(i));
+    for (let t = 0; t < TRACKS; t++) { assert.ok(pathExists(c.rows[t]), `seed ${s} chunk ${i} track ${t}: no path`); assert.ok(c.rows[t].at(-1).every(x => x === null)); }
+    if (c.setpiece === 'crossing') {
+      for (let t = 0; t < TRACKS; t++) { assert.ok(c.rows[t][1].every(x => x === null), 'a clear beat before the gates'); assert.ok(c.rows[t][2].every(x => x === 'arch'), 'gate arms across every lane'); }
+      assert.ok(c.cells.filter(k => k.type === 'arch' && k.wall).every(k => k.v === 0), 'gates use the crossing-gate prop'); assert.ok(c.wall, 'a crossing chunk is straight');
+    }
+    if (c.setpiece === 'tsunami') assert.ok(c.cells.some(k => k.thrown && k.by === 'tsunami'));
+    if (c.setpiece === 'fire') assert.ok(c.cells.some(k => k.thrown && k.by === 'fire'));
+  }
 });
 
 test('sections and lane helpers', () => {

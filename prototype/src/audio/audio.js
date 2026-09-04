@@ -127,6 +127,7 @@ export class GameAudio {
     layer('cicada', (g) => { const mod = this._gain(0.5, g); this._noise(0, 1e9, this._filter('bandpass', 4900, 14, mod)); const lfo = C.createOscillator(); lfo.frequency.value = 44; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); });
     layer('drone', (g) => { const lp = this._filter('lowpass', 170, 1, g); for (const f of [36.7, 37.1, 55.3]) { const o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(this._gain(0.4, lp)); o.start(); } const trem = C.createOscillator(); trem.frequency.value = 5.5; trem.connect(this._gain(0.25, g.gain)); trem.start(); });
     layer('rumble', (g) => { this._noise(0, 1e9, this._filter('lowpass', 95, 1.2, g)); });
+    layer('fire', (g) => { const mod = this._gain(0.5, g); this._noise(0, 1e9, this._filter('bandpass', 2600, 0.8, mod)); const lfo = C.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 13; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); this._noise(0, 1e9, this._filter('lowpass', 320, 1, this._gain(0.8, g))); });
     layer('jet', (g) => { this._noise(0, 1e9, this._filter('lowpass', 900, 0.8, g)); const o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 70; o.connect(this._filter('lowpass', 200, 1, this._gain(0.3, g))); o.start(); });
     layer('star', (g) => { const mod = this._gain(0.5, g); for (const d of [0, 7, 12]) { const o = C.createOscillator(); o.type = 'triangle'; o.frequency.value = 660 * Math.pow(2, d / 12); o.connect(this._gain(0.25, mod)); o.start(); } const lfo = C.createOscillator(); lfo.frequency.value = 8; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); });
   }
@@ -145,13 +146,15 @@ export class GameAudio {
     // ambience targets per biome, season, weather, time of day
     const b = BIOME_ID[st.biome] || 'mountain';
     this._target('wind', menu * ((b === 'mountain' ? 0.3 : b === 'coast' ? 0.22 : 0.1) + (winter ? 0.25 : 0) + (wx.gust ? 0.3 : 0) + (wx.id === 'blizzard' ? 0.3 : 0)));
-    this._target('sea', menu * (b === 'coast' ? 0.55 : 0));
+    this._target('sea', menu * ((b === 'coast' ? 0.55 : 0) + (st.running && st.setpiece === 'tsunami' ? 0.5 : 0)));
+    this._target('fire', st.running && st.setpiece === 'fire' ? 0.45 : 0);
+    if (st.running && st.setpiece === 'fire' && Math.random() < dt * 7) { const p = this._env(now, 0.001, 0.2, 0.05, 0, this.amb); this._noise(now, p.end, this._filter('bandpass', 1500 + Math.random() * 3500, 3, p.g)); }   // crackles
     this._target('rain', menu * wx.rain * 0.55);
     this._target('city', menu * (b === 'city' ? 0.4 : 0));
     this._target('crickets', menu * (!winter && b !== 'city' && st.night > 0.4 && !wx.rain ? 0.08 * st.night : 0));
     this._target('cicada', menu * (summer && (b === 'suburb' || b === 'mountain') && day > 0.5 && !wx.rain ? 0.07 * day : 0));
     this._target('drone', dead ? (st.running ? clamp01(st.dread - 0.25) * 0.75 + (st.kaiju ? 0.18 : 0) : 0) : 0.5);
-    this._target('rumble', st.running && st.setpiece === 'avalanche' ? 0.8 : 0);
+    this._target('rumble', st.running ? (st.setpiece === 'avalanche' ? 0.8 : st.setpiece === 'tsunami' ? 0.7 : 0) : 0);
     this._target('jet', st.running && st.jetpack ? 0.45 : 0);
     this._target('star', st.running && st.dash ? 0.12 : 0);
     this.tone.frequency.setTargetAtTime(st.dawn ? 12000 : 9000 - 4500 * st.night * (b === 'city' ? 0.3 : 1) - 3000 * clamp01(st.dread - 0.4), now, 0.5);
@@ -231,6 +234,15 @@ export class GameAudio {
     if (!this.ready) return; const t = this.ctx.currentTime;
     if (kind === 'bridge') for (let i = 0; i < 3; i++) { const { g, end } = this._env(t + i * 0.35, 0.02, 0.3, 0.35); const o = this._osc('sawtooth', 110 + i * 20, t + i * 0.35, end, this._filter('lowpass', 800, 4, g)); o.frequency.exponentialRampToValueAtTime(60, end); }
     else if (kind === 'avalanche') { this._drum('taiko', t, 1, this.sfx); this._drum('taiko', t + 0.3, 1, this.sfx); this.thunder(0.5, 0.1); }
+    else if (kind === 'tsunami') { const { g, end } = this._env(t, 0.4, 0.6, 2.4, 0.6); const lp = this._filter('lowpass', 1400, 0.8, g); lp.frequency.exponentialRampToValueAtTime(180, end); this._noise(t, end, lp); this._drum('taiko', t + 0.2, 1, this.sfx); this._drum('taiko', t + 0.7, 0.8, this.sfx); }
+    else if (kind === 'fire') { const { g, end } = this._env(t, 0.15, 0.45, 1.2, 0.3); const bp = this._filter('bandpass', 400, 1, g); bp.frequency.exponentialRampToValueAtTime(2600, t + 0.8); this._noise(t, end, bp); }
+  }
+  /** Level crossing: the warning bell (kan-kan-kan), a two-tone horn, the train's rumble. */
+  crossing() {
+    if (!this.ready) return; const t = this.ctx.currentTime;
+    for (let i = 0; i < 14; i++) { const tt = t + i * 0.42; const { g, end } = this._env(tt, 0.002, 0.28, 0.24, 0, this.sfx); this._osc('sine', 1750, tt, end, g); this._osc('sine', 2350, tt, end, this._gain(0.5, g)); this._osc('triangle', 3400, tt, end, this._gain(0.15, g)); }
+    const horn = this._env(t + 0.9, 0.05, 0.3, 0.2, 0.7); const lp = this._filter('lowpass', 1200, 1, horn.g); this._osc('sawtooth', 311, t + 0.9, horn.end, lp); this._osc('sawtooth', 392, t + 0.9, horn.end, lp);
+    const roll = this._env(t + 0.5, 1.0, 0.45, 1.5, 2.5); this._noise(t + 0.5, roll.end, this._filter('lowpass', 260, 1, roll.g));
   }
   /** A new province: a temple bell (kane). */
   bell() {
@@ -264,6 +276,7 @@ export class GameAudio {
       case 'gust': this.gust(false); break;
       case 'kaiju': if (e.kaiju) this.kaiju(); break;
       case 'setpiece': if (e.kind) this.setpiece(e.kind); break;
+      case 'crossing': this.crossing(); break;
       case 'section': this.bell(); break;
       case 'death': this.gong(); break;
     }

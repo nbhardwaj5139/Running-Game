@@ -73,9 +73,20 @@ export function weatherOf(seed, index) {
 export const bridgeAt = (index) => { const b = biomeOf(index); return (b === 3 || (b === 0 && !provinceOf(index).shrine)) && index % BIOME_LEN === 7 && Math.floor(index / BIOME_LEN) % 2 === 1 && !kaijuOf(index); };
 /** An avalanche chases the runners down the shrine stairs in winter. */
 export const avalancheAt = (index) => seasonOf(index) === 3 && (shrineClimbPitch(index) ?? 0) < 0;
+/** A tsunami on the Shōnan coast: chunks 11–13 of every Shōnan section, the sea side of the road. */
+export const tsunamiAt = (index) => provinceOf(index).id === 'shonan' && index % BIOME_LEN >= 11 && index % BIOME_LEN <= 13 && !kaijuOf(index);
+/** A bamboo forest fire on the Hakone road (never under snow): chunks 11–13 of a Hakone section. */
+export const fireAt = (index) => provinceOf(index).id === 'hakone' && index % BIOME_LEN >= 11 && index % BIOME_LEN <= 13 && seasonOf(index) !== 3 && !kaijuOf(index);
+/** A level crossing in the suburbs: the chunk where the scenery lays rails (index % 8 === 5), chunk 5 of a suburb section. */
+export const crossingAt = (index) => biomeOf(index) === 2 && index % BIOME_LEN === 5;
+/** Which set piece owns chunk `index`, or null. */
+export const setpieceAt = (index) => bridgeAt(index) ? 'bridge' : avalancheAt(index) ? 'avalanche' : tsunamiAt(index) ? 'tsunami' : fireAt(index) ? 'fire' : crossingAt(index) ? 'crossing' : null;
 export const SETPIECE = {
-  bridge:    { id: 'bridge',    jp: '崩落', en: 'The bridge is giving way', throws: ['gap'], side: 0 },
-  avalanche: { id: 'avalanche', jp: '雪崩', en: 'Avalanche',               throws: ['drusen', 'stalk'], side: 0 },
+  bridge:    { id: 'bridge',    jp: '崩落', en: 'The bridge is giving way',       throws: ['gap'], side: 0 },
+  avalanche: { id: 'avalanche', jp: '雪崩', en: 'Avalanche',                     throws: ['drusen', 'stalk'], side: 0 },
+  tsunami:   { id: 'tsunami',   jp: '津波', en: 'Tsunami',                       throws: ['wide', 'drusen', 'wave'], side: 1 },
+  fire:      { id: 'fire',      jp: '山火事', en: 'The bamboo forest is burning', throws: ['stalk', 'drusen'], side: 0 },
+  crossing:  { id: 'crossing',  jp: '踏切', en: 'Level crossing — slide under the gates', throws: [], side: 0 },
 };
 /** Chunks per lap of the itinerary (all eight provinces). */
 export const LAP_LEN = BIOME_LEN * PROVINCES.length;
@@ -219,11 +230,11 @@ function weightedPick(rng, items, weights) {
 }
 
 /** One track's worth of rows and cells. Pure in (seed, index, track). */
-function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal) {
+function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal, crossing = false) {
   const rng = mulberry32(mixSeed(mixSeed(seed, index), 0x7a + track));
   const cells = [], rows = [];
   const release = !kaiju && wave < TUNING.releaseBelow && index > 2;         // a thrower's chunk is never a release chunk
-  const wall = !release && !kaiju && diff > 0.7 && index % TUNING.wallEvery === 0;
+  const wall = !release && !kaiju && !crossing && diff > 0.7 && index % TUNING.wallEvery === 0;
   let reach = initialReach();
   let prev = null;
   const empty = () => new Array(LANES).fill(null);
@@ -243,7 +254,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
       if (t === 'wave') { if (l === 0) cells.push({ z: mask.z, lane: 0, track, type: 'wave', span: LANES, v: v(), ...thrown }); continue; }
       if (t === 'wide') { if (mask.wideLeft === l) cells.push({ z: mask.z, lane: l, track, type: 'wide', span: 2, v: v(), ...thrown }); continue; }
       if (t === 'roller') { if (mask.rollerLane === l) cells.push({ z: mask.z, lane: l, track, type: 'roller', dir: mask.rollerDir, period: mask.rollerPeriod, v: v() }); continue; }
-      cells.push({ z: mask.z, lane: l, track, type: t, v: v(), wall: !!mask.wall, ...thrown });
+      cells.push({ z: mask.z, lane: l, track, type: t, v: mask.crossing ? 0 : v(), wall: !!mask.wall, ...thrown });   // crossing gates are variant 0 of the suburb arch
     }
     rows.push(mask);
     reach = stepReach(mask, reach, prev) || initialReach(mask);   // never null for committed masks; defensive
@@ -254,6 +265,8 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
     const zb = z0 + b * BEAT_LEN + BEAT_LEN * 0.5;
     const breath = b === BEATS - 1;                 // last beat: always clear, so chunks never depend on each other
     const wallTelegraph = wall && b === 2;          // clear beat before the wall
+    if (crossing && b === 1) { const m = empty(); m.z = zb; commit(m); continue; }                                    // the clear beat before the crossing
+    if (crossing && b === 2) { const m = empty(); m.z = zb; m.wall = true; m.crossing = true; for (let l = 0; l < LANES; l++) m[l] = 'arch'; commit(m); continue; }   // gate arms down across every lane: slide
     if (index === 0 || release || breath || wallTelegraph) { const m = empty(); m.z = zb; commit(m); continue; }
 
     if (kaiju) {
@@ -336,7 +349,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
     const b = rng.int(1, BEATS - 2); const free = freeLanes(rows[b]);
     if (free.length) cells.push({ z: z0 + b * BEAT_LEN + 3, lane: rng.pick(free), track, type: 'power', kind: weightedPick(rng, POWERS, POWER_WEIGHTS), v: v() });
   }
-  return { cells, rows, release, wall };
+  return { cells, rows, release, wall: wall || crossing };   // a crossing chunk is straight, like a wall chunk
 }
 
 /**
@@ -346,14 +359,15 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
 export function generate(seed, index, cfg = DIFFICULTY.normal) {
   const { diff, wave } = difficultyAt(seed, index, cfg);
   const z0 = index * CHUNK_LEN;
-  const kaiju = kaijuOf(index) || (bridgeAt(index) ? { ...SETPIECE.bridge, setpiece: true } : avalancheAt(index) ? { ...SETPIECE.avalanche, setpiece: true } : null);
+  const sp = setpieceAt(index);
+  const kaiju = kaijuOf(index) || (sp && SETPIECE[sp].throws.length ? { ...SETPIECE[sp], setpiece: true } : null);   // set pieces that throw use the kaiju path
   const waveBeats = new Set();
   if (kaiju && kaiju.throws.includes('wave')) { const r = mulberry32(mixSeed(seed, index) ^ 0x3a7e); waveBeats.add(r.int(1, 3)); }
   const tracks = [];
-  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats, cfg));
+  for (let t = 0; t < TRACKS; t++) tracks.push(generateTrack(seed, index, t, diff, wave, z0, kaiju, waveBeats, cfg, sp === 'crossing'));
   const cells = tracks.flatMap(t => t.cells).sort((a, b) => a.z - b.z);
   return { index, z0, length: CHUNK_LEN, difficulty: diff, wave, release: tracks[0].release, wall: tracks.some(t => t.wall),
-    biome: biomeOf(index), season: seasonOf(index), kaiju: kaiju && !kaiju.setpiece ? kaiju : null, setpiece: kaiju && kaiju.setpiece ? kaiju.id : null, weather: weatherOf(seed, index), cells, rows: tracks.map(t => t.rows) };
+    biome: biomeOf(index), season: seasonOf(index), kaiju: kaiju && !kaiju.setpiece ? kaiju : null, setpiece: sp, weather: weatherOf(seed, index), cells, rows: tracks.map(t => t.rows) };
 }
 
 /**

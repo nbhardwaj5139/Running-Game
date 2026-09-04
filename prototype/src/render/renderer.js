@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LANE_W, LANES, TRACK_W, ROAD_HALF, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, POWER_INFO, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt, surfaceOf } from '../core/chunks.js';
+import { LANE_W, LANES, TRACK_W, ROAD_HALF, CHUNK_LEN, BIOME_LEN, BIOMES, SEASON_LEN, KAIJU, SETPIECE, POWER_INFO, roadX, trackX, cellX, biomeOf, seasonOf, rollerLaneAt, provinceOf, shrineClimbPitch, shrineTopAt, surfaceOf, fireAt } from '../core/chunks.js';
 import { mulberry32, mixSeed } from '../core/rng.js';
 import { W } from '../core/world.js';
 import { P } from '../core/player.js';
@@ -20,7 +20,7 @@ import { getTheme } from './theme.js';
 import { makeSky } from './sky.js';
 import { makeGroundMaterial, GROUND_W, MAX_LIGHTS } from './ground.js';
 import { makeGrass, makeFlowers } from './vegetation.js';
-import { makeParticles, makeTrail, makeTrain, makeShockRing } from './fx.js';
+import { makeParticles, makeTrail, makeTrain, makeLocalTrain, makeShockRing } from './fx.js';
 import { buildScenery } from './scenery.js';
 import { makeDeer } from './deer.js';
 import { makeLitter, makeSpray } from './litter.js';
@@ -106,12 +106,16 @@ function kaijuProps(obstacles) {
   const iceBlock = merge([paint(box(1.4, 2.2, 1.2), ice, { p: [0, 1.1, 0], r: [0, 0.4, 0] }), paint(box(0.9, 1.2, 0.9), [0.9, 0.97, 1.0], { p: [0.3, 2.3, 0.2], r: [0, 0.9, 0.2] })]);
   const snowball = paint(sph(0.5, 10), [0.96, 0.97, 1.0], { p: [0, 0.5, 0], s: [1.2, 1, 1.2] });
   const boulder = obstacles.mountain?.drusen?.[0], boat = obstacles.coast?.wide?.[0], buoy = obstacles.coast?.drusen?.[2] || obstacles.coast?.drusen?.[0];
+  const bamboo = obstacles.mountain?.stalk?.[1], log = obstacles.mountain?.drusen?.[1];
   const P = (geo, mat, scale = 1) => ({ geo, mat, scale });
   return {
     daidarabotchi: { stalk: boulder && P(boulder.geo, boulder.mat, 2.6), drusen: boulder && P(boulder.geo, boulder.mat, 1.1) },
     umibozu: { wide: boat && P(boat.geo, boat.mat, 1), drusen: buoy && P(buoy.geo, buoy.mat, 1) },
     gashadokuro: { stalk: P(boneSpike, PAINT_REF, 1), drusen: P(skull, PAINT_REF, 1), wide: P(ribs, PAINT_REF, 1) },
     yukioni: { stalk: P(iceBlock, PAINT_REF, 1), drusen: P(snowball, PAINT_REF, 1) },
+    // set pieces that throw: the tsunami washes boats and buoys onto the road, the fire drops burning bamboo and logs
+    tsunami: { wide: boat && P(boat.geo, boat.mat, 1), drusen: buoy && P(buoy.geo, buoy.mat, 1) },
+    fire: { stalk: bamboo && P(bamboo.geo, bamboo.mat, 1), drusen: log && P(log.geo, log.mat, 1) },
   };
 }
 const PAINT_REF = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
@@ -269,6 +273,7 @@ export class Renderer {
     this.kaijuProps = kaijuProps(this.obstacles);
     const waveGeo = merge([paint(box(TRACK_W, 0.32, 0.6), [1, 1, 1], { p: [0, 0.16, 0] }), paint(box(TRACK_W * 0.9, 0.32, 0.2), [0.8, 0.8, 0.8], { p: [0, 0.45, 0] })]);
     for (const k of KAIJU) this.pool(`wave:${k.id}`, waveGeo, new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(...k.color).multiplyScalar(1.15), transparent: true, opacity: 0.85 }));
+    this.pool('wave:tsunami', waveGeo, new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(0.55, 1.5, 1.7), transparent: true, opacity: 0.9 }));   // a surge of water across the road
     this.kaijuRigs = {}; for (const k of KAIJU) { const r = kaijuRig(k); this.stage.add(r.group); this.kaijuRigs[k.id] = r; }
     this.kaijuState = { id: null, y: -42, throwT: 9, stompT: 0, side: 1 };
     // shrine stairs: torii gates spanning the road on the climb, the shrine at the top
@@ -291,6 +296,13 @@ export class Renderer {
     this.avalanche = new THREE.Mesh(merge(lumps), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })); this.avalanche.visible = false; this.root.add(this.avalanche);
     this.avalancheS = null; this.thunderT = 0;
     this.snowballs = new InstancePool(this.root, sph(1, 9), new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.95 }), 24); this.balls = [];
+    // the tsunami's water wall (leans over the road from the sea side), flames for the forest fire, the local train at the level crossing
+    const water = [0.05, 0.36, 0.46], crest = [0.2, 0.62, 0.7], foam = [0.92, 0.98, 1.0];
+    const wall = [paint(box(12, 10, 96), water, { p: [0, 5, 0] }), paint(cyl(5, 5, 96, 14), crest, { p: [0, 10, 0], r: [Math.PI / 2, 0, 0] }), paint(cyl(3.4, 3.4, 96, 12), foam, { p: [-3, 12.2, 0], r: [Math.PI / 2, 0, 0] })];
+    for (let i = 0; i < 30; i++) wall.push(paint(sph(1.2 + (i % 4) * 0.5, 7), foam, { p: [-5 - (i % 3) * 1.2, 11 + ((i * 7) % 5) * 0.8, (i / 29 - 0.5) * 92] }));
+    this.tsunami = new THREE.Mesh(merge(wall), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 0.15, transparent: true, opacity: 0.92, emissive: new THREE.Color(0.08, 0.3, 0.36), emissiveIntensity: 0.6 })); this.tsunami.visible = false; this.root.add(this.tsunami); this.tsunamiX = null;   // self-lit a little: it must read at night
+    this.flames = new InstancePool(this.root, cone(0.5, 1, 6).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.1, 0.25), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }), 200);
+    this.localTrain = makeLocalTrain(); this.root.add(this.localTrain); this.trainCrossing = null;
   }
 
   /** Bend a floor mesh along the track: vertices go to world space, aTrack keeps (x, s) for the surface patterns. */
@@ -361,6 +373,11 @@ export class Renderer {
     this.flowers.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xf10e, c.index)), season, biome);
     this.litter.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x1eaf, c.index)), season);
     if (pv.deer) this.deer.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xdee4, c.index)), 5);
+    if (fireAt(c.index)) {                                                    // the forest fire: flames along both verges, an orange glow on the road
+      v.flames = [];
+      for (let i = 0; i < 24; i++) { const side = i % 2 ? 1 : -1, x = side * (7.8 + rng() * 9), z = c.z0 + rng() * CHUNK_LEN, s = 1.2 + rng() * 2.4; const k = this.flames.take(compose(x, 0, z, s * 0.8, s, s * 0.8, 0)); if (k >= 0) v.flames.push({ i: k, x, z, s, ph: rng() * 6.28 }); }
+      this.flames.flush(); for (const z of [c.z0 + 9, c.z0 + 27]) light(0, z, 2.5, 0.9, [1, 0.45, 0.12]);
+    }
     // shrine stairs: a torii tunnel up the climb, the shrine on the flat top
     const stairs = shrineClimbPitch(c.index);
     if (stairs !== null && stairs > 0) for (let i = 0; i < 6; i++) { const g = this.pools.toriiGate.take(); g.position.set(0, 0, c.z0 + 3 + i * 6); placeMesh(g); v.meshes.push(g); light(0, c.z0 + 3 + i * 6, 6.4, 0.5, [1, 0.5, 0.4]); }
@@ -381,6 +398,7 @@ export class Renderer {
     this.floorPool.give(v.floor);
     for (const m of v.meshes) this.pools[m.userData.pool]?.give(m);
     for (const t of v.thrown) if (t.plank) { this.pools.plank.give(t.plank); t.plank = null; }
+    if (v.flames) { for (const f of v.flames) this.flames.give(f.i); this.flames.flush(); }
     for (const coin of v.coins) { this.coinPool.give(coin.i); const k = this.coins.indexOf(coin); if (k >= 0) this.coins.splice(k, 1); }
     this.scenery.release(c.index); this.grass.release(c.index); this.flowers.release(c.index); this.litter.release(c.index); this.deer.release(c.index);
     this.views.delete(c.index);
@@ -394,7 +412,7 @@ export class Renderer {
     TRACK.map = (x, h, z, ry, outPos, outQuat) => this.track.map(x + TRACK.shift, h, z, ry, outPos, outQuat);
     for (const k of [...this.views.keys()]) this._detachChunk({ index: k });
     for (const c of world.pool.live) this._attachChunk(c);
-    this.train.visible = false; this.trainTimer = 6;
+    this.train.visible = false; this.trainTimer = 6; this.localTrain.visible = false; this.trainCrossing = null; this.tsunami.visible = false; this.tsunamiX = null;
   }
 
   /** Sim events → visual reactions. */
@@ -418,6 +436,7 @@ export class Renderer {
         if (e.cell) for (const v of this.views.values()) for (const m of v.meshes) if (m.userData.cell === e.cell) m.visible = false;   // punched clean through it
         break; }
       case 'bump': { const m = this.world.runners[e.mover]; this.shock.burst(roadX(m.xLane), this.world.distance, new THREE.Color(2.2, 1.8, 1.2)); break; }
+      case 'crossing': this.trainCrossing = { x: -80, z: e.z }; this.localTrain.visible = true; break;
       case 'stumble': this.shake = Math.max(this.shake, 0.18); if (R) R.hurt = 0.6; break;
       case 'fall': this.shake = Math.max(this.shake, 0.3); if (R) R.hurt = 1.0; break;
       case 'death': this.shake = 0.5; for (const r of this.rigs) r.hurt = 2; break;
@@ -439,9 +458,11 @@ export class Renderer {
     this.sun.color.copy(th.sun); this.sun.intensity = th.sunIntensity; this.sun.position.set(60, 46 - 30 * night, 140);
     this.hemi.color.copy(th.hemiSky); this.hemi.groundColor.copy(th.hemiGround); this.hemi.intensity = th.hemiIntensity;
     this.ambient.intensity = th.ambient; this.scene.fog.color.copy(th.fog).lerp(new THREE.Color(0.55, 0.58, 0.64), Math.min(1, wx.fog * 0.8 + wx.rain * 0.5)); this.base.material.color.copy(th.fog).multiplyScalar(0.55);
-    const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain);
+    const fire = w.setpiece === 'fire';
+    const wet = Math.max(clamp01((dread - 0.35) / 0.5) + (season === 1 && night > 0.35 && night < 0.65 ? 0.4 : 0), wx.rain, w.setpiece === 'tsunami' ? 1 : 0);
+    if (fire) { this.scene.fog.color.lerp(_COL.setRGB(0.5, 0.27, 0.12), 0.6); this.hemi.color.lerp(_COL.setRGB(1, 0.55, 0.25), 0.5); this.ambient.intensity += 0.2; }   // smoke and firelight
     // weather → visibility, sky mood, lightning
-    const fogK = Math.min(1, wx.fog + dread * 0.2);
+    const fogK = Math.min(1, wx.fog + dread * 0.2 + (fire ? 0.4 : 0));
     this.scene.fog.near += ((44 - 14 * fogK) - this.scene.fog.near) * Math.min(1, dt * 0.8); this.scene.fog.far += ((280 - 100 * fogK) - this.scene.fog.far) * Math.min(1, dt * 0.8);
     if (wx.id === 'thunder' && Math.random() < dt * 0.35) this.thunderT = 1;
     this.thunderT *= Math.exp(-dt * 10);
@@ -451,7 +472,7 @@ export class Renderer {
     this.sky.update(dt, { night, season: vSeason, seasonT, time: this.time, wind: this.wind, biome, dread: Math.min(1, dread + wx.rain * 0.5 + wx.fog * 0.3), water: pv.water, fujiScale: pv.fuji }, this.camera);
     this.grass.update(dt, this.wind, night, vSeason); this.flowers.update(dt, this.wind, night, vSeason);
     this.scenery.update(dt, { night, time: this.time, season: vSeason, biome, dt });
-    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread * 0.8, wx.rain * 0.6, wx.id === 'blizzard' ? 0.35 : 0) });
+    this.particles.update(dt, { season: vSeason, biome, night, scroll: w.speed, wind: this.wind, dread: Math.max(dread * 0.8, wx.rain * 0.6, wx.id === 'blizzard' ? 0.35 : 0), fire });
     const active = w.runners.filter(r => !r.disabled);
     this.deer.update(dt, w.distance);
     this.litter.update(dt, active.map(r => ({ x: roadX(r.xLane), s: w.distance, y: r.y })), this.wind, w.speed);
@@ -516,6 +537,7 @@ export class Renderer {
     this.storm.material.uniforms.uTime.value = this.time;
     if (dread > 0.45 && Math.random() < dt * (0.12 + dread * 0.5)) this.flash = 1;
     this.flash = Math.max(this.flash * Math.exp(-dt * 12), this.thunderT); this.storm.material.uniforms.uFlash.value = this.flash; this.flashLight.intensity = this.flash * 2.5;
+    if (fire) { this.flashLight.color.setRGB(1, 0.5, 0.2); this.flashLight.intensity = Math.max(this.flashLight.intensity, 0.45 + 0.3 * Math.sin(this.time * 23) * Math.sin(this.time * 7)); } else this.flashLight.color.setHex(0xdde6ff);   // firelight flickers
 
     // ---- coins, powers, rollers
     const spin = this.time * 3;
@@ -544,7 +566,14 @@ export class Renderer {
       if (t.landed) continue;
       const lead = w.speed * 1.5 + 8, dz = t.cell.z - w.distance;
       if (dz > lead) continue;
-      if (!t.start) { t.start = t.cell.by === 'avalanche' ? { x: (t.x + (Math.random() - 0.5) * 8), y: 9, z: w.distance - 16 } : { x: K.side * 2, y: 30, z: w.distance + 100 }; if (t.cell.by !== 'avalanche' && t.cell.by !== 'bridge') K.throwT = 0; t.m.visible = true; }
+      if (!t.start) {
+        const by = t.cell.by;   // the avalanche throws from behind, the tsunami from the sea, the fire drops from both verges, a kaiju from its arm
+        t.start = by === 'avalanche' ? { x: t.x + (Math.random() - 0.5) * 8, y: 9, z: w.distance - 16 }
+          : by === 'tsunami' ? { x: 36, y: 8, z: t.cell.z + 18 }
+          : by === 'fire' ? { x: ((t.cell.v ?? 0) % 2 ? 1 : -1) * 14, y: 10, z: t.cell.z + 5 }
+          : { x: K.side * 2, y: 30, z: w.distance + 100 };
+        if (!SETPIECE[by]) K.throwT = 0; t.m.visible = true;
+      }
       const p = clamp01(1 - (dz - 4) / (lead - 4));
       if (t.cell.by === 'bridge') {
         // the deck gives way: the plank under this gap drops away just before the runners arrive
@@ -574,6 +603,19 @@ export class Renderer {
       for (const b of this.balls) this.snowballs.give(b.i); this.balls.length = 0; this.snowballs.flush();
       if (this.avalancheS < w.distance - 90) { this.avalanche.visible = false; this.avalancheS = null; }
     }
+    // the tsunami: a water wall rolls in from the sea side, leans over the road, then recedes when the stretch is done
+    if (w.setpiece === 'tsunami') {
+      this.tsunamiX = this.tsunamiX ?? 70; this.tsunamiX += (14 - this.tsunamiX) * Math.min(1, dt * 0.8);
+      const m = this.tsunami; m.visible = true; m.position.set(this.tsunamiX, -2 + Math.sin(this.time * 2.3) * 0.7, w.distance + 26); m.rotation.set(0, 0, 0.32 + Math.sin(this.time * 1.6) * 0.06); placeMesh(m);
+    } else if (this.tsunami.visible) {
+      this.tsunamiX += 22 * dt; this.tsunami.position.set(this.tsunamiX, -2, w.distance + 26); this.tsunami.rotation.set(0, 0, 0.2); placeMesh(this.tsunami);
+      if (this.tsunamiX > 90) { this.tsunami.visible = false; this.tsunamiX = null; }
+    }
+    // the forest fire: flames flicker on the verges
+    for (const v of this.views.values()) if (v.flames) for (const f of v.flames) { const k = f.s * (0.8 + 0.35 * Math.sin(this.time * 11 + f.ph) * Math.sin(this.time * 7.3 + f.ph * 2)); this.flames.set(f.i, compose(f.x + Math.sin(this.time * 5 + f.ph) * 0.15, 0, f.z, k * 0.8, k, k * 0.8, 0)); }
+    this.flames.flush();
+    // the local train at the level crossing: crosses the road on the rails, left to right, before the runners arrive
+    if (this.trainCrossing) { const tc = this.trainCrossing; tc.x += 40 * dt; this.localTrain.position.set(tc.x, 0, tc.z); this.localTrain.rotation.set(0, Math.PI / 2, 0); placeMesh(this.localTrain); if (tc.x > 90) { this.localTrain.visible = false; this.trainCrossing = null; } }
     // shinkansen on the city viaduct
     if (this.train.visible) { this.trainS -= 62 * dt; this.train.position.set(16, 6.6, this.trainS); this.train.rotation.set(0, 0, 0); placeMesh(this.train); if (this.trainS < w.distance - 70) this.train.visible = false; }
     else if (biome === 1 && (this.trainTimer -= dt) <= 0) { this.trainTimer = 9 + Math.random() * 8; this.train.visible = true; this.trainS = w.distance + 230; }

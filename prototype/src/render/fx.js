@@ -70,6 +70,8 @@ export function makeParticles(parent) {
   const flies = new Field(parent, 160, { x: [-24, 24], y: [0.4, 4], z: [-6, 60] }, radial('rgba(255,255,200,1)', 'rgba(200,255,120,0)'), { additive: true, baseSize: 0.35, tumble: 0 });
   flies.paint(() => [1.4, 1.8, 0.6]);
   const dust = new Field(parent, 200, { x: [-14, 14], y: [0.5, 8], z: [-4, 40] }, radial('rgba(255,240,200,0.8)', 'rgba(255,240,200,0)'), { additive: true, baseSize: 0.12, tumble: 0 });
+  const embers = new Field(parent, 240, { x: [-30, 30], y: [0.1, 11], z: [-6, 60] }, radial('rgba(255,225,140,1)', 'rgba(255,90,10,0)'), { additive: true, baseSize: 0.28, tumble: 0 });
+  embers.paint(() => [2.4, 0.8 + Math.random() * 0.6, 0.15]);
   const rain = lines(parent, 700, 0.8, 0xbcc8e6, 0.5); const rainBox = { z: [-6, 40] };
   const resetRain = (i, any) => { const x = -16 + Math.random() * 32, y = any ? Math.random() * 14 : 14, z = rainBox.z[0] + Math.random() * 46; rain.pos.set([x, y, z, x + 0.08, y - 0.8, z], i * 6); };
   for (let i = 0; i < rain.n; i++) resetRain(i, true);
@@ -87,6 +89,7 @@ export function makeParticles(parent) {
       snow.target = season === 3 ? (biome === 0 ? 1 : 0.8) : 0;
       flies.target = season === 1 && night > 0.4 && biome !== 1 ? 0.9 : 0;
       dust.target = night < 0.3 && dread < 0.4 ? 0.6 : 0;
+      embers.target = st.fire ? 1 : 0;
       rain.target = Math.max(dread > 0.5 ? (dread - 0.5) * 2 : 0, season === 1 && night > 0.3 && night < 0.6 ? 0.55 : 0) * rain.max;
       wind.target = (0.12 + (season === 2 ? 0.25 : 0) + dread * 0.5) * wind.max;
       petals.step(dt, scroll, phaseT, (i, p, dt, t, ph) => { p[i * 3 + 1] -= (0.7 + 0.3 * Math.sin(ph)) * dt; p[i * 3] += (Math.sin(t * 1.3 + ph) * 0.9 + wx * 0.8) * dt; p[i * 3 + 2] += (Math.cos(t * 0.9 + ph) * 0.4 + ws * 1.5) * dt; });
@@ -94,6 +97,7 @@ export function makeParticles(parent) {
       snow.step(dt, scroll, phaseT, (i, p, dt, t, ph) => { p[i * 3 + 1] -= (0.9 + 0.4 * Math.sin(ph)) * dt; p[i * 3] += (Math.sin(t * 0.7 + ph) * 0.5 + wx * 0.6) * dt; p[i * 3 + 2] += (ws * 0.8) * dt; });
       flies.step(dt, scroll, phaseT, (i, p, dt, t, ph) => { p[i * 3] += Math.sin(t * 0.8 + ph) * 0.6 * dt; p[i * 3 + 1] += Math.cos(t * 1.1 + ph * 2) * 0.4 * dt; if (p[i * 3 + 1] < 0.4) p[i * 3 + 1] = 0.4; });
       dust.step(dt, scroll * 0.2, phaseT, (i, p, dt, t, ph) => { p[i * 3] += Math.sin(t * 0.5 + ph) * 0.2 * dt; p[i * 3 + 1] += Math.cos(t * 0.4 + ph) * 0.15 * dt; });
+      embers.step(dt, scroll, phaseT, (i, p, dt, t, ph) => { p[i * 3 + 1] += (1.6 + Math.sin(ph) * 0.6) * dt; p[i * 3] += (Math.sin(t * 2.1 + ph) * 1.2 + wx) * dt; if (p[i * 3 + 1] > 11) p[i * 3 + 1] = 0.1; });   // embers rise and wrap
       for (const L of [rain, wind]) { L.mat.opacity += (L.target - L.mat.opacity) * Math.min(1, dt * 2); L.obj.visible = L.mat.opacity > 0.01; }
       if (rain.obj.visible) { for (let i = 0; i < rain.n; i++) { const dy = 22 * dt, dz = scroll * dt; rain.pos[i * 6 + 1] -= dy; rain.pos[i * 6 + 4] -= dy; rain.pos[i * 6 + 2] -= dz; rain.pos[i * 6 + 5] -= dz; if (rain.pos[i * 6 + 4] < 0 || rain.pos[i * 6 + 2] < rainBox.z[0]) resetRain(i, false); } rain.geo.attributes.position.needsUpdate = true; }
       if (wind.obj.visible) { for (let i = 0; i < wind.n; i++) { const dz = (windV[i] * ws - scroll) * dt; wind.pos[i * 6 + 2] += dz; wind.pos[i * 6 + 5] += dz; wind.pos[i * 6] += wx * 2 * dt; wind.pos[i * 6 + 3] += wx * 2 * dt; if (wind.pos[i * 6 + 2] > windBox.z[1] || wind.pos[i * 6 + 5] < windBox.z[0]) resetWind(i, false); } wind.geo.attributes.position.needsUpdate = true; }
@@ -124,6 +128,21 @@ export function makeTrain() {
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.65, 0.35, 44), new THREE.MeshBasicMaterial({ color: 0x2457c5 })); stripe.position.y = 1.7; g.add(stripe);
   const win = new THREE.Mesh(new THREE.BoxGeometry(2.66, 0.5, 42), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.0, 1.5) })); win.position.y = 2.15; g.add(win);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.6, 3) })); head.position.set(0, 1.0, -28.8); g.add(head);
+  g.visible = false; return g;
+}
+
+/** A two-car local train (silver, green stripe) for the level crossing. Root space; runs along its local z. */
+export function makeLocalTrain() {
+  const g = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: 0.4, metalness: 0.2 }), bogie = new THREE.MeshStandardMaterial({ color: 0x333840, roughness: 0.8 });
+  const stripe = new THREE.MeshBasicMaterial({ color: 0x2f8f4e }), win = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.0, 1.9, 1.5) });
+  const add = (geo, m, p) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(...p); g.add(mesh); return mesh; };
+  for (const zc of [-10.5, 10.5]) {
+    add(new THREE.BoxGeometry(2.8, 3.0, 20), body, [0, 1.9, zc]); add(new THREE.BoxGeometry(2.85, 0.4, 20), stripe, [0, 1.3, zc]);
+    add(new THREE.BoxGeometry(2.86, 0.9, 19), win, [0, 2.5, zc]); add(new THREE.BoxGeometry(2.2, 0.3, 19), body, [0, 3.5, zc]);
+    for (const dz of [-6, 6]) add(new THREE.BoxGeometry(2.4, 0.8, 3), bogie, [0, 0.5, zc + dz]);
+  }
+  add(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.8, 3) }), [0, 1.6, -20.6]);
   g.visible = false; return g;
 }
 

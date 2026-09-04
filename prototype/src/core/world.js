@@ -1,6 +1,6 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, provinceOf, weatherOf, bridgeAt, avalancheAt, SETPIECE, CHUNK_LEN, DIFFICULTY } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, biomeOf, seasonOf, kaijuOf, provinceOf, weatherOf, setpieceAt, crossingAt, SETPIECE, CHUNK_LEN, DIFFICULTY } from './chunks.js';
 import { mulberry32, mixSeed } from './rng.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
@@ -42,7 +42,7 @@ export class World {
     this.log = [];                // inputs for replay/validation
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
-    this.bumpCool = 0; this.kaiju = null; this.setpiece = null; this.dawnT = 0;
+    this.bumpCool = 0; this.kaiju = null; this.setpiece = null; this.dawnT = 0; this.crossingZ = null;
     this.weather = weatherOf(seed, 0); this.gustRng = mulberry32(mixSeed(seed, 0x9057)); this.nextGust = 6; this.gust = null;
   }
 
@@ -79,8 +79,10 @@ export class World {
     if (biome !== this.section.biome || season !== this.section.season) { this.section = { biome, season }; this._emit({ type: 'section', biome, season, province: provinceOf(idx), index: idx }); }
     const kj = kaijuOf(idx);
     if ((kj?.id ?? null) !== (this.kaiju?.id ?? null)) { this.kaiju = kj; this._emit({ type: 'kaiju', kaiju: kj, index: idx }); }
-    const sp = bridgeAt(idx) ? 'bridge' : avalancheAt(idx) ? 'avalanche' : null;
+    const sp = setpieceAt(idx);
     if (sp !== this.setpiece) { this.setpiece = sp; this._emit({ type: 'setpiece', kind: sp, spec: sp ? SETPIECE[sp] : null, index: idx }); }
+    // a level crossing ahead: the bell starts and the train crosses well before the runners arrive
+    for (let k = 0; k < 5; k++) { const i = idx + k; if (!crossingAt(i)) continue; const z = i * CHUNK_LEN + 18; if (this.distance > z - 130 && this.crossingZ !== z) { this.crossingZ = z; this._emit({ type: 'crossing', z, index: i }); } break; }
     // --- weather: per section; gusts shove every runner a lane (telegraphed), slick roads slow lane changes
     const wx = weatherOf(this.seed, idx);
     if (wx !== this.weather) { this.weather = wx; this._emit({ type: 'weather', weather: wx }); }
@@ -140,7 +142,8 @@ export class World {
     }
 
     // --- the typhoon ---
-    const pressure = this.cfg.drift * Math.min(1, Math.max(0, this.distance - 1200) / 3000) * this.weather.pressure * (this.setpiece === 'avalanche' ? 2.2 : 1);   // no passive drain in the first 1.2 km
+    const spPressure = this.setpiece === 'avalanche' ? 2.2 : this.setpiece === 'tsunami' ? 1.8 : this.setpiece === 'fire' ? 1.5 : 1;
+    const pressure = this.cfg.drift * Math.min(1, Math.max(0, this.distance - 1200) / 3000) * this.weather.pressure * spPressure;   // no passive drain in the first 1.2 km
     const clean = this.runners.every(r => r.disabled || r.stumbleT === 0);
     this.storm = Math.min(W.STORM_MAX, this.storm + (clean ? this.cfg.recover : 0) * dt - (this.dawnT > 0 ? 0 : pressure) * dt);
     if (this.storm <= 0) this._die('storm');

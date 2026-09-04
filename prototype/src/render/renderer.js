@@ -220,6 +220,27 @@ export class Renderer {
     }
   }
 
+  /** A rival on another laptop: a translucent runner with a name tag on the same road. Never collides with anything. */
+  setGhost(id, character, name) {
+    this.ghosts ??= new Map();
+    let G = this.ghosts.get(id); if (G && G.character === character && G.name === name) return G;
+    if (G) this.removeGhost(id);
+    const rig = buildCharacter(characterById(character).id, (hex) => new THREE.MeshStandardMaterial({ color: hex, roughness: 0.65, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.stage.add(rig.group);
+    const tex = canvasTexture(256, 64, (g, w, h) => { g.font = 'bold 34px "Zen Kaku Gothic New", "Noto Sans JP", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 8; g.fillStyle = '#fff'; g.fillText(name || '', w / 2, h / 2); });
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })); label.scale.set(2.4, 0.6, 1); label.position.y = 1.7; rig.group.add(label);
+    G = { id, character, name, rig, label, phase: 0 }; this.ghosts.set(id, G); return G;
+  }
+  removeGhost(id) { const G = this.ghosts?.get(id); if (!G) return; this.stage.remove(G.rig.group); this.ghosts.delete(id); }
+  /** g: { x: continuous global lane, y, z: metres along the road, action, alive } */
+  drawGhost(id, g, dt) {
+    const G = this.ghosts?.get(id); if (!G) return; const grp = G.rig.group;
+    grp.visible = g.alive !== false && Math.abs(g.z - this.world.distance) < 300; if (!grp.visible) return;
+    G.phase += dt * 12; const slide = g.action === 'slide';
+    grp.position.set(roadX(g.x), g.y, g.z); grp.rotation.set(0, 0, 0); grp.scale.set(1, slide ? 0.55 : 1, slide ? 1.25 : 1); placeMesh(grp);
+    G.rig.legs.forEach((l, i) => { l.rotation.x = Math.sin(G.phase + (i % 2 ? Math.PI : 0) + (i >= 2 ? Math.PI * 0.5 : 0)) * 0.95; });
+  }
+
   resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); this.gl.setSize(innerWidth, innerHeight); this.composer.setSize(innerWidth, innerHeight); }
   /** Render scale 0.5..1 of the base pixel ratio (adaptive: drops when frames run long, climbs back when they are quick). */
   setScale(s) {

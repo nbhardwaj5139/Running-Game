@@ -1,5 +1,8 @@
-// Shared Nerve client: tick sync, hints, saccade scheduling. Loads socket.io lazily.
-import { MSG, SACCADE_LEAD_TICKS, HINT_HZ, TICK_RATE } from '../core/protocol.js';
+// Room client for KITSUNE: joins a room (the room name is the seed), readies up,
+// takes the server's start signal, sends 10 Hz hints, keeps the rivals' last
+// positions (extrapolated at their measured speed), and submits the input log
+// at the end of a run for validation. Loads socket.io lazily from the dev server.
+import { MSG, HINT_HZ, cleanRoom, cleanName } from '../core/protocol.js';
 
 function loadSocketIo() {
   if (globalThis.io) return Promise.resolve(globalThis.io);
@@ -12,51 +15,54 @@ function loadSocketIo() {
 }
 
 export class NetClient {
-  constructor({ room, name, onWelcome, onPlayers, onHint, onNerve, onSaccade, onDenied, onSurge, onDeath, onLeave, onStatus }) {
-    Object.assign(this, { room, name, onWelcome, onPlayers, onHint, onNerve, onSaccade, onDenied, onSurge, onDeath, onLeave, onStatus });
-    this.id = null; this.rtt = 0; this.world = null; this.lastHint = 0; this.connected = false;
-    this.serverTickBase = 0; this.baseTime = performance.now();   // server tick <-> wall clock (not sim ticks: the sim can pause)
+  /** on: { status, welcome, players, start, death, result, standings, leave } */
+  constructor({ room, name, character, on = {} }) {
+    this.room = cleanRoom(room); this.name = cleanName(name); this.character = character; this.on = on;
+    this.id = null; this.connected = false; this.offset = 0; this.rtt = 0; this.lastHint = 0;
+    this.players = []; this.state = 'lobby'; this.difficulty = 'normal'; this.ghosts = new Map();
   }
 
   async connect() {
     const io = await loadSocketIo();
-    this.socket = io({ transports: ['websocket'] });
-    const s = this.socket;
-    s.on('connect', () => { this.connected = true; s.emit(MSG.JOIN, { room: this.room, name: this.name }); this.onStatus?.('connected'); });
-    s.on('disconnect', () => { this.connected = false; this.onStatus?.('offline'); });
-    s.on(MSG.WELCOME, (m) => { this.id = m.id; this._sync(m.serverTick); this.onWelcome?.(m); this._ping(); setInterval(() => this._ping(), 5000); });
-    s.on(MSG.PLAYERS, (m) => this.onPlayers?.(m));
-    s.on(MSG.HINT, (m) => { if (m.id !== this.id) this.onHint?.(m); });
-    s.on(MSG.NERVE, (m) => this.onNerve?.(m.value));
-    s.on(MSG.SACCADE, (m) => this.onSaccade?.(m.dir, this.toLocalTick(m.applyTick), m.by));
-    s.on(MSG.SACCADE_DENIED, (m) => this.onDenied?.(m.reason));
-    s.on(MSG.BLINK_SURGE, (m) => this.onSurge?.(m));
-    s.on(MSG.DEATH, (m) => this.onDeath?.(m));
-    s.on('leave', (m) => this.onLeave?.(m));
-    s.on(MSG.PONG, (m) => { this.rtt = performance.now() - m.t; this._sync(m.serverTick + Math.round((this.rtt / 2) / 1000 * TICK_RATE)); });
+    const s = this.socket = io({ transports: ['websocket'] });
+    s.on('connect', () => { this.connected = true; s.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character }); this.on.status?.('connected'); });
+    s.on('disconnect', () => { this.connected = false; this.on.status?.('offline'); });
+    s.on(MSG.WELCOME, (m) => { this.id = m.id; this.state = m.state; this.difficulty = m.difficulty; this.players = m.players; this._syncClock(m.serverNow, performance.now()); this.on.welcome?.(m); this._ping(); clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this._ping(), 4000); });
+    s.on(MSG.PLAYERS, (m) => { this.players = m.players; if (m.state) this.state = m.state; this.on.players?.(m); });
+    s.on(MSG.START, (m) => { this.state = 'countdown'; this.difficulty = m.difficulty; this.players = m.players; this.ghosts.clear(); this.on.start?.({ ...m, inMs: Math.max(0, m.at - this.serverNow()) }); });
+    s.on(MSG.HINT, (m) => {
+      if (m.id === this.id) return;
+      const now = performance.now() / 1000, g = this.ghosts.get(m.id) || { id: m.id, z0: 0, v: 0, t: 0 };
+      if (g.t) { const dt = now - g.t; if (dt > 0.02) g.v = Math.max(0, Math.min(70, (m.z - g.z0) / dt)); }
+      Object.assign(g, { z0: m.z, x: m.x, y: m.y, action: m.action, alive: m.alive, score: m.score, storm: m.storm, t: now });
+      this.ghosts.set(m.id, g);
+    });
+    s.on(MSG.DEATH, (m) => { const g = this.ghosts.get(m.id); if (g) g.alive = false; this.on.death?.(m); });
+    s.on(MSG.RESULT, (m) => this.on.result?.(m));
+    s.on(MSG.STANDINGS, (m) => { this.state = 'lobby'; this.on.standings?.(m); });
+    s.on('leave', (m) => { this.ghosts.delete(m.id); this.on.leave?.(m); });
+    s.on(MSG.PONG, (m) => { const now = performance.now(); this.rtt = now - m.t; this._syncClock(m.serverNow, now - this.rtt / 2); });
   }
 
-  attach(world) { this.world = world; }
-  _sync(serverTick) { this.serverTickBase = serverTick; this.baseTime = performance.now(); }
-  /** Best estimate of the server's tick right now. */
-  serverTickNow() { return this.serverTickBase + (performance.now() - this.baseTime) / 1000 * TICK_RATE; }
-  /** A server tick expressed as a local *sim* tick: "this many ticks from now" — robust to a paused or slow sim. */
-  toLocalTick(serverTick) { return this.world ? this.world.tick + Math.round(serverTick - this.serverTickNow()) : 0; }
-  _ping() { this.socket.emit(MSG.PING, { t: performance.now() }); }
+  _syncClock(serverNow, localAt) { this.offset = serverNow - localAt; }   // server ms ≈ performance.now() + offset
+  serverNow() { return performance.now() + this.offset; }
+  _ping() { this.socket?.emit(MSG.PING, { t: performance.now() }); }
 
-  /** Called every frame; sends a hint at HINT_HZ. */
-  update(now) {
-    if (!this.connected || !this.world) return;
-    if (now - this.lastHint >= 1000 / HINT_HZ) {
-      const p = this.world.player;
-      this.socket.emit(MSG.HINT, { z: +p.z.toFixed(1), lane: p.viewLane + this.world.window, y: +p.y.toFixed(2), action: p.action, alive: p.alive });
-      this.lastHint = now;
-    }
+  /** Change name or character: joining again with the same socket replaces the room's entry for us. */
+  rejoin({ name = this.name, character = this.character } = {}) { this.name = cleanName(name); this.character = character; if (this.connected) this.socket.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character }); }
+  ready(ready, difficulty) { this.socket?.emit(MSG.READY, { ready, difficulty }); }
+  /** Call every frame while running: sends a hint at HINT_HZ. */
+  hint(now, w) {
+    if (!this.connected || now - this.lastHint < 1000 / HINT_HZ) return;
+    this.lastHint = now; const p = w.player;
+    this.socket.emit(MSG.HINT, { z: +w.distance.toFixed(1), x: +p.xLane.toFixed(2), y: +p.y.toFixed(2), action: p.action, alive: w.alive, score: Math.floor(w.score), storm: +w.storm.toFixed(1) });
   }
-  charge(amount, reason) { this.socket?.emit(MSG.NERVE_CHARGE, { amount, reason }); }
-  requestSaccade(dir) { this.socket?.emit(MSG.SACCADE_REQUEST, { dir }); }
   death(z) { this.socket?.emit(MSG.DEATH, { z }); }
   runEnd(log, summary) { this.socket?.emit(MSG.RUN_END, { log, summary }); }
-}
 
-export { SACCADE_LEAD_TICKS };
+  /** Where a rival is right now: its last hint, run forward at its measured speed (for at most half a second). */
+  ghostZ(g, nowS) { return g.z0 + (g.alive ? g.v * Math.min(0.5, Math.max(0, nowS - g.t)) : 0); }
+  get rivals() { return [...this.ghosts.values()]; }
+  playerById(id) { return this.players.find(p => p.id === id); }
+  get me() { return this.playerById(this.id); }
+}

@@ -1,63 +1,63 @@
-// Integration: two clients in one room share the Nerve; a saccade is scheduled
-// in the future and the last-place runner eats a Blink surge.
+// Integration: two clients in one room share the seed; the first ready player fixes the
+// difficulty; a countdown starts everyone together; hints relay; a genuine run validates
+// by replay and a lying one is flagged; standings arrive when every racer is done.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { io } from 'socket.io-client';
-import { MSG, NERVE_COST, SACCADE_LEAD_TICKS, BLINK_SURGE_LAST } from '../prototype/src/core/protocol.js';
+import { MSG, COUNTDOWN_MS } from '../prototype/src/core/protocol.js';
+import { World } from '../prototype/src/core/world.js';
+import { normalizeSeed } from '../prototype/src/core/rng.js';
 
 const PORT = 18080 + Math.floor(Math.random() * 1000);
 const url = `http://localhost:${PORT}`;
-const waitFor = (sock, ev) => new Promise((res) => sock.once(ev, res));
-const connect = (name) => { const s = io(url, { transports: ['websocket'] }); s.emit(MSG.JOIN, { room: 'test-eye', name }); return s; };
+const waitFor = (sock, ev, pred = () => true) => new Promise((res) => { const h = (m) => { if (pred(m)) { sock.off(ev, h); res(m); } }; sock.on(ev, h); });
+const connect = (name, character) => { const s = io(url, { transports: ['websocket'] }); s.emit(MSG.JOIN, { room: 'test-road', name, character }); return s; };
 
-test('shared nerve room', async (t) => {
+test('a room: shared seed, ready → countdown, hints relayed, runs validated by replay, standings', async (t) => {
   const server = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'inherit'] });
-  await new Promise((res) => server.stdout.on('data', (d) => { if (String(d).includes('VITREOUS')) res(); }));
+  await new Promise((res) => server.stdout.on('data', (d) => { if (String(d).includes('KITSUNE')) res(); }));
   t.after(() => server.kill());
 
-  const a = connect('alpha');
+  const a = connect('alpha', 'kitsune');
   const wa = await waitFor(a, MSG.WELCOME);
-  assert.equal(wa.nerve, 0);
-  assert.ok(Number.isInteger(wa.seed));
-  const b = connect('beta');
+  assert.equal(wa.seed, normalizeSeed('test-road'), 'the room name is the seed'); assert.equal(wa.state, 'lobby');
+  const b = connect('beta', 'tanuki');
   const wb = await waitFor(b, MSG.WELCOME);
-  assert.equal(wb.seed, wa.seed, 'same room => same seed');
-  assert.equal(wb.players.length, 2);
+  assert.equal(wb.seed, wa.seed); assert.equal(wb.players.length, 2);
 
-  // positions: alpha ahead, beta behind
-  a.emit(MSG.HINT, { z: 300, lane: 2, y: 0, action: 'run', alive: true });
-  b.emit(MSG.HINT, { z: 120, lane: 1, y: 0, action: 'run', alive: true });
-  const hintSeen = await waitFor(a, MSG.HINT);
-  assert.equal(hintSeen.id, b.id); assert.equal(hintSeen.z, 120);
+  // ready: nothing starts until everyone is ready; the first ready player picks the difficulty
+  const startA = waitFor(a, MSG.START), startB = waitFor(b, MSG.START);
+  a.emit(MSG.READY, { ready: true, difficulty: 'hard' });
+  const ps = await waitFor(b, MSG.PLAYERS, (m) => m.players.find(p => p.name === 'alpha')?.ready); assert.equal(ps.state, 'lobby'); assert.ok(!ps.players.find(p => p.name === 'beta').ready);
+  b.emit(MSG.READY, { ready: true, difficulty: 'easy' });
+  const [sa, sb] = await Promise.all([startA, startB]);
+  assert.equal(sa.seed, sb.seed); assert.equal(sa.difficulty, 'hard'); assert.equal(sa.at, sb.at); assert.equal(sa.inMs, COUNTDOWN_MS);
+  assert.ok(sa.players.every(p => p.inRace));
 
-  // saccade before nerve is charged is denied
-  a.emit(MSG.SACCADE_REQUEST, { dir: 1 });
-  const denied = await waitFor(a, MSG.SACCADE_DENIED);
-  assert.equal(denied.reason, 'nerve');
+  // hints relay to the other laptop, never back to the sender
+  a.emit(MSG.HINT, { z: 300, x: 4.2, y: 0.5, action: 'jump', alive: true, score: 540, storm: 28 });
+  const h = await waitFor(b, MSG.HINT);
+  assert.equal(h.id, a.id); assert.equal(h.z, 300); assert.equal(h.x, 4.2); assert.equal(h.action, 'jump'); assert.equal(h.score, 540);
 
-  // charge from both players; oversized charges are clamped to 30
-  const nerveP = new Promise((res) => { const seen = []; b.on(MSG.NERVE, (m) => { seen.push(m.value); if (m.value >= NERVE_COST) res(seen); }); });
-  a.emit(MSG.NERVE_CHARGE, { amount: 500 });
-  b.emit(MSG.NERVE_CHARGE, { amount: 25 });
-  const seen = await nerveP;
-  assert.ok(seen.every(v => v <= 55), `charges clamped: ${seen}`);
+  // a genuine run validates: the server replays the log with the room seed and difficulty
+  const w = new World(wa.seed, { difficulty: 'hard', solo: true });
+  for (let i = 0; i < 60 * 8 && w.alive; i++) { if (i % 40 === 0) w.input(1, { kind: 'jump' }); if (i % 90 === 0) w.input(1, { kind: 'lane', dir: i % 180 ? 1 : -1 }); w.step(); }
+  const resA = waitFor(b, MSG.RESULT);
+  a.emit(MSG.RUN_END, { log: w.log, summary: w.summary });
+  const ra = await resA;
+  assert.equal(ra.id, a.id); assert.equal(ra.valid, true, ra.reason); assert.equal(ra.distance, w.summary.distance); assert.equal(ra.score, w.summary.score);
 
-  // alpha (leader) fires a saccade: scheduled in the future, beta (last) gets the surge
-  const sacB = waitFor(b, MSG.SACCADE); const surgeB = waitFor(b, MSG.BLINK_SURGE);
-  a.emit(MSG.SACCADE_REQUEST, { dir: -1 });
-  const sac = await sacB;
-  assert.equal(sac.dir, -1); assert.equal(sac.by, a.id);
-  const pong = await (async () => { b.emit(MSG.PING, { t: 0 }); return waitFor(b, MSG.PONG); })();
-  assert.ok(sac.applyTick > pong.serverTick - 5 && sac.applyTick <= pong.serverTick + SACCADE_LEAD_TICKS + 1, 'applyTick is ~300 ms ahead');
-  const surge = await surgeB;
-  assert.equal(surge.target, b.id); assert.equal(surge.meters, BLINK_SURGE_LAST);
+  // a lying client is flagged; when every racer is done the standings arrive and the lobby reopens
+  const standings = waitFor(a, MSG.STANDINGS), resB = waitFor(a, MSG.RESULT);
+  b.emit(MSG.RUN_END, { log: w.log, summary: { ...w.summary, distance: w.summary.distance + 500 } });
+  const rb = await resB; assert.equal(rb.id, b.id); assert.equal(rb.valid, false);
+  const st = await standings;
+  assert.equal(st.standings.length, 2); assert.equal(st.standings[0].id, a.id, 'sorted by distance');
+  const back = await waitFor(b, MSG.PLAYERS, (m) => m.state === 'lobby'); assert.ok(back.players.every(p => !p.ready && !p.inRace));
 
-  // death + leave propagate
-  b.emit(MSG.DEATH, { z: 130 });
-  const d = await waitFor(a, MSG.DEATH); assert.equal(d.id, b.id);
+  // leaving propagates
   b.disconnect();
-  const leave = await waitFor(a, 'leave'); assert.equal(leave.id, d.id);
+  const leave = await waitFor(a, 'leave'); assert.equal(leave.id, rb.id);
   a.disconnect();
 });

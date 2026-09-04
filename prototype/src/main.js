@@ -6,18 +6,23 @@ import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 import { CHARACTERS, characterById, buildCharacter } from './render/characters.js';
 import { GameAudio } from './audio/audio.js';
+import { NetClient } from './net/client.js';
+import { cleanRoom } from './core/protocol.js';
 import * as THREE from 'three';
 
 const q = new URLSearchParams(location.search);
-const seedParam = q.get('seed') || new Date().toISOString().slice(0, 10);   // Seed of the Day by default
+const roomName = q.get('room') ? cleanRoom(q.get('room')) : null;          // ?room=NAME: race friends on other laptops; the room name is the road
+const seedParam = roomName || q.get('seed') || new Date().toISOString().slice(0, 10);   // Seed of the Day by default
 const seed = normalizeSeed(seedParam);
 const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
-  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
+  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')], rival: $('rival') };
 
+// modes: 1 = solo, 2 = two players on one keyboard, 3 = online race (solo sim, rivals drawn as ghosts)
 let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
+let net = null, countdown = 0, lastCount = -1, myReady = false;
 // ---- sound: synthesised in the browser, unlocked by the first key or tap (browser rule), M mutes
 const audio = new GameAudio(seed);
 const muteBtn = $('mute');
@@ -72,7 +77,7 @@ function renderCharacterPickers() {
 for (const slot of [0, 1]) document.getElementById('chars' + slot).addEventListener('click', (e) => {
   const b = e.target.closest('.cbtn'); if (!b) return;
   chars[slot] = b.dataset.id; try { localStorage.setItem('kitsune.chars', JSON.stringify(chars)); } catch {}
-  renderCharacterPickers(); renderer?.setCharacters(chars);
+  renderCharacterPickers(); renderer?.setCharacters(chars); if (slot === 1) net?.rejoin({ character: chars[1] });
 });
 function setDifficulty(d) {
   difficulty = d; try { localStorage.setItem('kitsune.diff', d); } catch {}
@@ -83,7 +88,7 @@ setDifficulty(difficulty);
 
 function newWorld() {
   world = new World(seed, {
-    reducedMotion, difficulty, solo: mode === 1, autopilot: [], invincible: god,
+    reducedMotion, difficulty, solo: mode !== 2, autopilot: [], invincible: god && mode !== 3,
     onEvent: (e) => {
       renderer?.onEvent(e); audio.onEvent(e);
       if ((e.type === 'stumble' || e.type === 'fall') && !e.free && e.cell) {
@@ -123,8 +128,8 @@ function onDeath(e) {
   running = false;
   const why = e.reason === 'fall' ? '落ちた — The road gave way and the typhoon closed in.' : '台風 — The typhoon took the pair.';
   hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers · ${DIFFICULTY[difficulty].en}`;
-  hud.modes.style.display = 'flex';
-  hud.foot.textContent = 'pick a mode, or press R / tap to run again in the same mode';
+  if (net) { net.death(world.distance); net.runEnd(world.log, world.summary); hud.foot.textContent = 'run sent for validation · waiting for the others to finish…'; }
+  else { hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode, or press R / tap to run again in the same mode'; }
   hud.msg.classList.remove('hidden');
 }
 
@@ -137,23 +142,72 @@ document.getElementById('endrun').addEventListener('click', () => { resume(); ab
 /** End the run right now and go back to the start screen (a new run starts fresh). */
 function abort() {
   if (!running) return;
-  running = false; world.alive = false;
+  running = false; world.alive = false; countdown = 0;
   hud.body.innerHTML = `Run ended.<br><b>${Math.floor(world.distance)} m</b> · score <b>${Math.floor(world.score)}</b> · ${world.coins} coins · ${DIFFICULTY[difficulty].en}`;
-  hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode to run again · Esc ends a run at any time';
+  if (net) { net.death(world.distance); net.runEnd(world.log, world.summary); hud.foot.textContent = 'run sent · waiting for the others to finish…'; }
+  else { hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode to run again · Esc ends a run at any time'; }
   hud.msg.classList.remove('hidden'); hud.quit.style.display = 'none';
 }
 document.getElementById('quit').addEventListener('click', pause);
 
 function start(m) {
+  if (net) return;                            // online: the server starts the race for everyone at once (see startRace)
   if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
   if (!mode) return;                          // the start screen waits for a mode
-  if (!world || !world.alive || !!world.opts.solo !== (mode === 1) || world.cfg.id !== difficulty) newWorld();
-  hud.who[0].textContent = 'player 2 · WASD'; hud.runners[0].style.display = mode === 1 ? 'none' : '';
-  hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
+  if (!world || !world.alive || !!world.opts.solo !== (mode !== 2) || world.cfg.id !== difficulty) newWorld();
+  hud.who[0].textContent = 'player 2 · WASD'; hud.runners[0].style.display = mode === 2 ? '' : 'none';
+  hud.who[1].textContent = mode === 2 ? 'player 1 · arrows' : 'you';
   running = true; hud.msg.classList.add('hidden'); hud.quit.style.display = 'block'; last = performance.now(); acc = 0;
   audio.unlock(); audio.begin();
 }
 hud.modes.addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) start(Number(b.dataset.mode)); });
+
+// ---- online race: ?room=NAME. Every laptop runs its own sim on the room's road; rivals are drawn from 10 Hz hints.
+function startRace(m) {
+  mode = 3; setDifficulty(m.difficulty); newWorld(); paused = false; running = false; myReady = false; drawReady();
+  hud.pause.classList.add('hidden'); hud.msg.classList.add('hidden'); hud.quit.style.display = 'block';
+  hud.who[1].textContent = 'you'; hud.runners[0].style.display = 'none';
+  countdown = Math.max(0.05, m.inMs / 1000); lastCount = -1; audio.unlock();
+}
+function drawReady() {
+  const b = $('ready'); if (!b) return; b.classList.toggle('on', myReady);
+  b.querySelector('b').textContent = myReady ? '✓ READY' : (net?.state === 'lobby' ? '▶ RACE' : '⏳ RACE IN PROGRESS');
+  b.querySelector('small').textContent = myReady ? 'waiting for the others · click again to un-ready' : net?.state === 'lobby' ? 'everyone in the room runs the same road · starts when all are ready' : 'you can join the next one';
+}
+function drawRoom() {
+  if (!net) return;
+  const list = $('roomPlayers'); list.innerHTML = '';
+  for (const p of net.players) { const s = document.createElement('span'); s.textContent = `${characterById(p.character).jp} ${p.name}${p.ready ? ' ✓' : ''}`; s.className = (p.ready ? 'ready' : '') + (p.id === net.id ? ' me' : ''); list.appendChild(s); }
+  $('roomStatus').textContent = !net.connected ? 'offline — run `npm run dev` and open this link on both laptops' : `${net.players.length} on the road · ${DIFFICULTY[net.difficulty]?.en || 'Normal'} · ${net.state === 'lobby' ? 'waiting for everyone to hit RACE' : 'race in progress'}`;
+  drawReady();
+}
+function setupRoom() {
+  let myName = q.get('name') || ''; try { myName ||= localStorage.getItem('kitsune.name') || ''; } catch {}
+  if (!myName) myName = `${characterById(chars[1]).en}-${10 + Math.floor(Math.random() * 90)}`;
+  $('room').style.display = ''; $('roomName').textContent = `ROOM ${roomName}`; $('pname').value = myName; hud.modes.style.display = 'none';
+  document.querySelector('#msg h1 small').textContent = '狐 · online race';
+  hud.body.innerHTML = `Everyone who opens this link runs the same road. Hit <b>RACE</b> when you are ready; the run starts for all of you on the same count.<br>Rivals run beside you as ghosts. Every run is checked by replaying it on the server.`;
+  const results = new Map();
+  net = new NetClient({ room: roomName, name: myName, character: chars[1], on: {
+    status: drawRoom,
+    welcome: drawRoom,
+    players: () => { const me = net.me; if (me && myReady !== !!me.ready) { myReady = !!me.ready; } drawRoom(); },
+    start: (m) => { results.clear(); startRace(m); },
+    result: (r) => { results.set(r.id, r); if (r.id !== net.id) { hud.power.textContent = `${r.name.toUpperCase()} — ${r.distance} m${r.valid ? '' : ' · INVALID'}`; hud.power.classList.add('on'); powerT = 2.5; } },
+    standings: (m) => {
+      const rows = m.standings.map((r, i) => `<tr class="${r.id === net.id ? 'me' : ''}"><td>${i + 1}</td><td>${characterById(r.character).jp} ${r.name}</td><td><b>${r.distance} m</b></td><td>${r.score} pts</td><td class="${r.valid ? '' : 'bad'}">${r.valid ? '✓ replay matched' : '✗ ' + r.reason}</td></tr>`).join('');
+      hud.body.innerHTML = `<b>${m.standings[0]?.id === net.id ? 'You won the road.' : (m.standings[0]?.name || '') + ' won the road.'}</b><table class="standings">${rows}</table>`;
+      hud.foot.textContent = 'hit RACE for another run on the same road'; hud.msg.classList.remove('hidden'); running = false; countdown = 0; myReady = false; drawRoom();
+    },
+  } });
+  net.connect().catch((e) => { $('roomStatus').textContent = e.message; });
+  $('pname').addEventListener('change', () => { const n = $('pname').value.trim(); if (!n) return; try { localStorage.setItem('kitsune.name', n); } catch {} net.rejoin({ name: n }); });
+  $('ready').addEventListener('click', toggleReady);
+}
+function toggleReady() {
+  if (!net || !net.connected || net.state !== 'lobby') return;
+  myReady = !myReady; net.ready(myReady, difficulty); drawReady(); audio.unlock();
+}
 
 // ---- input --------------------------------------------------------------
 // 1P: arrows and WASD both drive the fox (track 1). 2P: WASD = tanuki (track 0), arrows/space = fox (track 1).
@@ -163,7 +217,7 @@ const KEYS = {
 };
 function press(track, kind, dir) {
   if (!running) { start(); return; }
-  const t = mode === 1 ? 1 : track;
+  const t = mode === 2 ? track : 1;
   world.input(t, dir === undefined ? { kind } : { kind, dir });
   if (kind !== 'lane' || world.runners[t].laneT >= 1) audio.action(kind);
 }
@@ -171,34 +225,53 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   audio.unlock();
   if (e.code === 'KeyM') { audio.toggleMuted(); drawMute(); return; }
-  if (e.code === 'Digit1' || e.code === 'Digit2') { if (!running) { start(e.code === 'Digit1' ? 1 : 2); } return; }
+  if (e.target && e.target.tagName === 'INPUT') return;
+  if (e.code === 'Digit1' || e.code === 'Digit2') { if (!running && !net) { start(e.code === 'Digit1' ? 1 : 2); } return; }
   if (e.code === 'Escape' || e.code === 'KeyP') { if (paused) resume(); else if (running) pause(); return; }
   if (paused) { if (e.code === 'Enter') resume(); return; }
-  if (e.code === 'KeyR') { if (mode) { newWorld(); start(); } return; }
-  const k = KEYS[e.code]; if (k) { e.preventDefault(); press(k[0], k[1], k[2]); } else if (!running && mode) start();
+  if (e.code === 'KeyR') { if (net) { if (!running && countdown <= 0) toggleReady(); } else if (mode) { newWorld(); start(); } return; }
+  const k = KEYS[e.code]; if (k) { e.preventDefault(); press(k[0], k[1], k[2]); } else if (!running && mode && !net) start();
 });
 addEventListener('keyup', (e) => {
   if (!world) return;
   if (['ArrowUp', 'Space'].includes(e.code)) world.input(1, { kind: 'jumpRelease' });
-  if (e.code === 'KeyW') world.input(mode === 1 ? 1 : 0, { kind: 'jumpRelease' });
+  if (e.code === 'KeyW') world.input(mode === 2 ? 0 : 1, { kind: 'jumpRelease' });
 });
 let touch = null;
-addEventListener('pointerdown', (e) => { audio.unlock(); if (e.target.closest('.mode, #quit, #mute, .dbtn, .cbtn')) return; touch = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerdown', (e) => { audio.unlock(); if (e.target.closest('.mode, #quit, #mute, .dbtn, .cbtn, #room')) return; touch = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', (e) => {
   if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; const track = mode === 2 && touch.x < innerWidth / 2 ? 0 : 1; touch = null;
-  if (!running) { if (mode) start(); return; }
+  if (!running) { if (mode && !net) start(); return; }
   if (Math.hypot(dx, dy) < 24) press(track, 'jump');
   else if (Math.abs(dx) > Math.abs(dy)) press(track, 'lane', dx > 0 ? 1 : -1); else if (dy < 0) press(track, 'jump'); else press(track, 'slide');
   setTimeout(() => world?.input(track, { kind: 'jumpRelease' }), 160);
 });
 
 // ---- loop ---------------------------------------------------------------
-function frame(now) {
-  requestAnimationFrame(frame);
+function frame(now) { requestAnimationFrame(frame); tick(now); }
+function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (countdown > 0) {                                                       // online: everyone starts on the server's count
+    countdown -= dt; const n = Math.max(0, Math.ceil(countdown));
+    if (n !== lastCount) { lastCount = n; hud.toastJp.textContent = n > 0 ? String(n) : '走れ'; hud.toastEn.textContent = n > 0 ? 'READY' : 'GO'; hud.toast.classList.add('on'); toastT = 1.1; audio.coin(n > 0 ? 2 : 6); }
+    if (countdown <= 0) { running = true; last = now; acc = 0; audio.begin(); }
+  }
   if (running) { acc += dt; while (acc >= W.TICK) { world.step(); acc -= W.TICK; } }
   renderer.render(dt);
   if (!running && !paused) drawPreviews(dt);
+  if (net) {
+    const nowS = now / 1000; if (running) net.hint(now, world);
+    let near = null;
+    for (const g of net.rivals) {
+      const p = net.playerById(g.id); if (!p) continue;
+      renderer.setGhost(g.id, p.character, p.name); const z = net.ghostZ(g, nowS);
+      renderer.drawGhost(g.id, { x: g.x, y: g.y, z, action: g.action, alive: g.alive }, dt);
+      if (!near || Math.abs(z - world.distance) < Math.abs(near.z - world.distance)) near = { z, p, g };
+    }
+    for (const id of [...(renderer.ghosts?.keys() || [])]) if (!net.ghosts.has(id)) renderer.removeGhost(id);
+    if (near && (running || countdown > 0)) { const d = Math.round(near.z - world.distance); hud.rival.innerHTML = `vs <b>${near.p.name}</b> ${d >= 0 ? '+' : '−'}${Math.abs(d)} m <i>${near.g.score ?? 0} pts${near.g.alive === false ? ' · out' : ''}</i>`; hud.rival.classList.add('on'); }
+    else hud.rival.classList.remove('on');
+  }
   {
     const idx = world.chunkIndex, live = world.runners.filter(r => !r.disabled);
     audio.update(dt, { themeId: provinceOf(idx).id, season: seasonOf(idx), biome: biomeOf(idx), speed: world.speed, night: nightAt(world.distance), dread: 1 - Math.max(0, world.storm) / W.STORM_MAX,
@@ -231,11 +304,12 @@ function frame(now) {
 newWorld();
 renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0', characters: chars });
 renderCharacterPickers();
-hud.hint.textContent = `seed ${seedParam} · Seed of the Day — same road for everyone today`;
+hud.hint.textContent = roomName ? `room ${roomName} — the room name is the road` : `seed ${seedParam} · Seed of the Day — same road for everyone today`;
 requestAnimationFrame(() => hud.hint.textContent += ` · ${DIFFICULTY[difficulty].en}`);
-if (q.get('mode')) start(Number(q.get('mode')));
+if (roomName) setupRoom();
+else if (q.get('mode')) start(Number(q.get('mode')));
 requestAnimationFrame(frame);
 
 // expose for debugging / headless smoke tests
-globalThis.__kitsune = { get world() { return world; }, renderer, audio, start, press, get running() { return running; }, get mode() { return mode; } };
+globalThis.__kitsune = { get world() { return world; }, renderer, audio, get net() { return net; }, start, press, toggleReady, tick, get running() { return running; }, get mode() { return mode; }, get countdown() { return countdown; } };
 globalThis.__vitreous = globalThis.__kitsune;

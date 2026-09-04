@@ -279,8 +279,8 @@ export class World {
 }
 
 /** Replay a run headlessly from its input log: used to validate a submitted score. */
-export function replay(seed, log, maxTicks = 60 * 60 * 30, difficulty = 'normal') {
-  const w = new World(seed, { difficulty });
+export function replay(seed, log, maxTicks = 60 * 60 * 30, difficulty = 'normal', opts = {}) {
+  const w = new World(seed, { ...opts, difficulty });
   let i = 0;
   while (w.alive && w.tick < maxTicks) {
     while (i < log.length && log[i].t === w.tick) { const e = log[i++]; if (e.i) w.runners[e.i.track ?? 1].input(e.i); }

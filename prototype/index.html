@@ -29,6 +29,19 @@
   .chip.shield { border-color: var(--cyan); color: var(--cyan); } .chip.jetpack { border-color: #ffb347; color: #ffb347; } .chip.foxfire { border-color: #6fe8ff; color: #6fe8ff; } .chip.guide { border-color: #c98cff; color: #c98cff; } .chip.magnet { border-color: #8fb8ff; color: #8fb8ff; } .chip.dash { border-color: #b8ff8f; color: #b8ff8f; }
   #x2 { position: absolute; top: 14px; left: 50%; transform: translateX(-50%) translateY(56px); color: #ffd23f; font-weight: 900; font-size: 18px; letter-spacing: .1em; text-shadow: 0 0 14px rgba(255,210,63,.8); display: none; }
   #x2.on { display: block; }
+  #rival { position: absolute; top: 88px; left: 0; right: 0; text-align: center; font-size: 13px; letter-spacing: .18em; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.9); display: none; }
+  #rival.on { display: block; } #rival b { color: var(--amber); } #rival i { font-style: normal; opacity: .75; margin-left: 8px; }
+  #room { margin: 14px 0 4px; padding: 12px 14px; border: 1px solid rgba(126,240,255,.35); border-radius: 12px; background: rgba(126,240,255,.06); text-align: left; }
+  .roomhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; }
+  .roomhead b { font-size: 16px; letter-spacing: .25em; color: var(--cyan); } .roomhead span { opacity: .75; text-transform: none; letter-spacing: .05em; }
+  .roomrow { display: flex; gap: 12px; align-items: stretch; margin-top: 10px; }
+  .roomrow label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; opacity: .85; }
+  .roomrow input { font: inherit; font-size: 14px; letter-spacing: .05em; padding: 8px 10px; width: 130px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: rgba(0,0,0,.3); color: #fff; text-transform: none; }
+  .roomrow .mode { flex: 1; max-width: none; text-align: left; } .roomrow .mode.on { border-color: var(--cyan); background: rgba(126,240,255,.14); }
+  #roomPlayers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 12px; letter-spacing: .08em; }
+  #roomPlayers span { opacity: .7; } #roomPlayers span.ready { opacity: 1; color: var(--cyan); } #roomPlayers span.me::after { content: ' (you)'; opacity: .6; }
+  .standings { margin: 8px auto 0; border-collapse: collapse; font-size: 13px; letter-spacing: .05em; }
+  .standings td { padding: 3px 10px; } .standings tr.me td { color: var(--amber); } .standings td.bad { color: var(--red); }
   #toast { position: absolute; top: 30%; left: 0; right: 0; text-align: center; pointer-events: none; opacity: 0; transition: opacity .5s; }
   #toast b { display: block; font-family: "Shippori Mincho", serif; font-size: 64px; letter-spacing: .3em; color: #fff; text-shadow: 0 0 30px rgba(255,255,255,.6), 0 2px 6px rgba(0,0,0,.6); }
   #toast span { font-size: 14px; letter-spacing: .4em; text-transform: uppercase; opacity: .85; }
@@ -104,6 +117,7 @@
   <div class="stat" style="right:16px;text-align:right">小判 coins<b id="coins">0</b></div>
   <div id="section"><b id="secJp">春</b><span id="secEn">Spring · Mountain shrine path</span><span id="godChip" style="display:none;margin-left:10px;color:#ffd23f">神 GOD MODE</span></div>
   <div id="x2">×2 DARUMA</div>
+  <div id="rival"></div>
   <div id="toast"><b id="toastJp"></b><span id="toastEn"></span></div>
   <div id="power"></div>
   <div id="pickup"><b class="glyph"></b><span class="name"></span><span class="what"></span><span class="who"></span></div>
@@ -135,6 +149,11 @@
     <div class="diff" id="diff"><span>difficulty</span>
       <button class="dbtn" data-diff="easy">易 Easy</button><button class="dbtn on" data-diff="normal">普通 Normal</button><button class="dbtn" data-diff="hard">難 Hard</button>
       <label class="god"><input type="checkbox" id="god"> 神 God mode <small>never die · see the whole journey</small></label>
+    </div>
+    <div id="room" style="display:none">
+      <div class="roomhead"><b id="roomName"></b><span id="roomStatus">connecting…</span></div>
+      <div class="roomrow"><label>your name <input id="pname" maxlength="16" spellcheck="false"></label><button class="mode" id="ready"><b>▶ RACE</b><small>everyone in the room runs the same road · starts when all are ready</small></button></div>
+      <div id="roomPlayers"></div>
     </div>
     <div class="modes" id="modes">
       <button class="mode" data-mode="1"><b><kbd>1</kbd> 1 PLAYER</b><small>You run alone on the open road. Both halves of the road are yours.<br>Arrows or WASD · Space jump</small></button>

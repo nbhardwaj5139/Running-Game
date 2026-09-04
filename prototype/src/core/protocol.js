@@ -1,31 +1,25 @@
-// Wire protocol for Shared Nerve. Transport-agnostic (Socket.io in the prototype,
-// Colyseus in production). Kept tiny on purpose: only events and 10 Hz hints.
+// Wire protocol for KITSUNE rooms. Transport-agnostic (Socket.io in the prototype).
+// A room is a seed: everyone in it runs the same road. Each laptop runs its own sim;
+// only 10 Hz position hints and end-of-run input logs cross the wire. The server
+// starts races, relays hints, and validates every finished run by replaying its log.
 export const TICK_RATE = 60;
-export const SACCADE_LEAD_TICKS = 18;      // 300 ms scheduled into the future
 export const HINT_HZ = 10;
-export const NERVE_COST = 40;
-export const NERVE_MAX = 100;
-export const BLINK_SURGE_LAST = 6;         // metres taken from the last-place runner per saccade
+export const COUNTDOWN_MS = 3000;
+export const MAX_LOG = 40000;              // inputs per run the server will replay
 
 export const MSG = {
-  JOIN: 'join',                // C→S {room, name}
-  WELCOME: 'welcome',          // S→C {id, seed, serverTick, players, nerve}
-  PLAYERS: 'players',          // S→C {players:[{id,name}]}
-  HINT: 'hint',                // C→S→C {id, z, lane, y, action}
-  NERVE_CHARGE: 'nerve.charge',// C→S {amount, reason}
-  NERVE: 'nerve',              // S→C {value}
-  SACCADE_REQUEST: 'saccade.request', // C→S {dir}
-  SACCADE: 'saccade',          // S→C {dir, applyTick, by}
-  SACCADE_DENIED: 'saccade.denied',   // S→C {reason}
-  BLINK_SURGE: 'blink.surge',  // S→C {target, meters}
+  JOIN: 'join',                // C→S {room, name, character}
+  WELCOME: 'welcome',          // S→C {id, room, seed, state, difficulty, players, serverNow}
+  PLAYERS: 'players',          // S→C {players:[{id, name, character, ready, alive, z, score, done, inRace}], state}
+  READY: 'ready',              // C→S {ready, difficulty}   — the first ready player fixes the room's difficulty
+  START: 'start',              // S→C {at (server ms), inMs, seed, difficulty, players}
+  HINT: 'hint',                // C→S→C {id, z, x, y, action, alive, score, storm}
   DEATH: 'death',              // C→S→C {id, z}
   RUN_END: 'run.end',          // C→S {log, summary}
-  PING: 'ping', PONG: 'pong',  // {t}
+  RESULT: 'result',            // S→C {id, name, character, distance, score, coins, valid, reason}
+  STANDINGS: 'standings',      // S→C {standings:[result…]}  — when every racer is done; the lobby reopens
+  PING: 'ping', PONG: 'pong',  // {t} / {t, serverNow}
 };
 
-/** Clamp/validate a client charge so a hacked client can't fill the meter. */
-export function sanitizeCharge(amount) {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(30, Math.floor(n)));
-}
+export const cleanName = (s) => String(s || '').replace(/[^\p{L}\p{N} _\-.]/gu, '').trim().slice(0, 16);
+export const cleanRoom = (s) => String(s || 'lobby').slice(0, 32).replace(/[^\w-]/g, '') || 'lobby';

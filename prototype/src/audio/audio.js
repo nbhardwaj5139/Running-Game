@@ -301,6 +301,12 @@ export class GameAudio {
     const { g, end } = this._env(t + 0.4, 0.3, 0.5, 1.4, 0.4); const lp = this._filter('lowpass', 900, 3, g); lp.frequency.exponentialRampToValueAtTime(160, end);
     const o = this._osc('sawtooth', 58, t + 0.4, end, lp); o.frequency.exponentialRampToValueAtTime(34, end); this._osc('square', 29, t + 0.4, end, this._gain(0.3, lp));
   }
+  /** The herd: a patter of hooves across the road and a deer's whistle. */
+  herd() {
+    if (!this.ready) return; const t = this.ctx.currentTime;
+    for (let i = 0; i < 22; i++) { const tt = t + 0.2 + i * 0.09 + (i % 3) * 0.02; const { g, end } = this._env(tt, 0.002, 0.12 + (i % 2) * 0.05, 0.06); this._noise(tt, end, this._filter('lowpass', 500 + (i % 4) * 90, 0.8, g)); }
+    const w = this._env(t, 0.03, 0.22, 0.35); const o = this._osc('sine', 1900, t, w.end, w.g); o.frequency.exponentialRampToValueAtTime(1350, t + 0.3);
+  }
   /** Bridge: wood creaks. Avalanche: a taiko hit and the rumble layer takes over. */
   setpiece(kind) {
     if (!this.ready) return; const t = this.ctx.currentTime;
@@ -351,6 +357,7 @@ export class GameAudio {
       case 'kaiju': if (e.kaiju) this.kaiju(e.kaiju); break;
       case 'setpiece': if (e.kind) this.setpiece(e.kind); break;
       case 'crossing': this.crossing(); break;
+      case 'herd': this.herd(); break;
       case 'section': this.bell(); break;
       case 'death': this.gong(); break;
     }

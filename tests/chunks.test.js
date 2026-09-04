@@ -53,18 +53,23 @@ test('every road of every chunk is solvable on its own (2000 seeds x 60 chunks)'
 });
 
 test('set pieces sit where the itinerary says, never on a kaiju chunk, and stay solvable', () => {
-  const found = { bridge: [], avalanche: [], tsunami: [], fire: [], rockfall: [], crossing: [] };
+  const found = { bridge: [], avalanche: [], tsunami: [], fire: [], rockfall: [], crossing: [], herd: [] };
   for (let i = 0; i < 1024; i++) { const sp = setpieceAt(i); if (sp) { found[sp].push(i); assert.ok(!kaijuOf(i), `${sp} on a kaiju chunk ${i}`); } }
   for (const k of Object.keys(found)) assert.ok(found[k].length > 0, `${k} never happens`);
   assert.ok(found.tsunami.every(i => provinceOf(i).id === 'shonan')); assert.ok(found.fire.every(i => provinceOf(i).id === 'hakone' && seasonOf(i) !== 3)); assert.ok(found.crossing.every(i => biomeOf(i) === 2 && i % 8 === 5));
   assert.ok(found.avalanche.every(i => seasonOf(i) === 3 && provinceOf(i).shrine));
   assert.ok(found.rockfall.every(i => provinceOf(i).hike && climbPitchAt(i) > 0), 'boulders come down on the climb itself');
-  for (let s = 1; s <= 300; s++) for (const i of [...found.tsunami.slice(0, 3), ...found.fire.slice(0, 3), ...found.rockfall.slice(0, 3), found.crossing[0], found.crossing[1]]) {
+  assert.ok(found.herd.every(i => provinceOf(i).deer), 'the herd crosses where the deer live');
+  for (let s = 1; s <= 300; s++) for (const i of [...found.tsunami.slice(0, 3), ...found.fire.slice(0, 3), ...found.rockfall.slice(0, 3), found.crossing[0], found.crossing[1], found.herd[0], found.herd[1]]) {
     const c = generate(s, i); assert.equal(c.setpiece, setpieceAt(i));
     for (const { rows, lanes } of roads(c)) { assert.ok(pathExists(rows, lanes), `seed ${s} chunk ${i}: no path`); assert.ok(rows.at(-1).every(x => x === null)); }
     if (c.setpiece === 'crossing') {
       for (const { rows } of roads(c)) { assert.ok(rows[1].every(x => x === null), 'a clear beat before the gates'); assert.ok(rows[2].every(x => x === 'arch'), 'gate arms across every lane'); }
       assert.ok(c.cells.filter(k => k.type === 'arch' && k.wall).every(k => k.v === 0), 'gates use the crossing-gate prop'); assert.ok(c.wall, 'a crossing chunk is straight');
+    }
+    if (c.setpiece === 'herd') {
+      for (const { rows, lanes } of roads(c)) { assert.ok(rows[1].every(x => x === null) && rows[2].every(x => x === null), 'room to see the herd'); assert.equal(rows[3].filter(x => x === 'drusen').length, lanes - 1, 'deer in every lane but one'); }
+      assert.ok(c.cells.filter(k => k.herd).every(k => k.type === 'drusen'), 'stragglers are jumped'); assert.ok(c.wall, 'a deer crossing is straight');
     }
     if (c.setpiece === 'tsunami') assert.ok(c.cells.some(k => k.thrown && k.by === 'tsunami'));
     if (c.setpiece === 'fire') assert.ok(c.cells.some(k => k.thrown && k.by === 'fire'));

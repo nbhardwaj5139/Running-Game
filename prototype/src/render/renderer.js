@@ -22,7 +22,7 @@ import { makeGroundMaterial, GROUND_W, MAX_LIGHTS } from './ground.js';
 import { makeGrass, makeFlowers } from './vegetation.js';
 import { makeParticles, makeTrail, makeTrain, makeLocalTrain, makeShockRing, makeBurst } from './fx.js';
 import { buildScenery } from './scenery.js';
-import { makeDeer } from './deer.js';
+import { makeDeer, deerStanding, DEER_MAT } from './deer.js';
 import { makeLitter, makeSpray } from './litter.js';
 
 /** Golden hour ↔ night, one full cycle every 3.6 km (starts at golden hour). */
@@ -364,6 +364,7 @@ export class Renderer {
     ]), PAINT_REF);
     this.pool('cairn', merge([0, 1, 2, 3, 4].map(i => paint(sph(0.62 - i * 0.09, 7), stone, { p: [(i % 2 ? 0.08 : -0.06), 0.34 + i * 0.5, (i % 3 ? 0.05 : -0.05)], s: [1.2, 0.72, 1.1] }))), PAINT_REF);
     this.deer = makeDeer(this.root); this.litter = makeLitter(this.root); this.spray = makeSpray(this.scene);
+    this.deerVariant = { geo: deerStanding(), mat: DEER_MAT, name: 'deer' };   // the stragglers of a deer crossing, standing in the lanes
     // set pieces: the collapsing bridge (railings, pillars, planks) and the avalanche wall
     const wood = [0.42, 0.3, 0.2], rope = [0.55, 0.45, 0.32];
     this.pool('rail', merge([paint(box(0.18, 1.1, CHUNK_LEN), wood, { p: [0, 0.55, 0] }), paint(box(0.12, 0.1, CHUNK_LEN), rope, { p: [0, 1.1, 0] }), ...[0, 1, 2, 3, 4, 5].map(i => paint(box(0.25, 1.2, 0.25), wood, { p: [0, 0.6, -CHUNK_LEN / 2 + 3 + i * 6] }))]), PAINT_REF);
@@ -435,6 +436,12 @@ export class Renderer {
     out.yaw = Math.atan(d.x * f.spread * (Math.PI / L) * Math.sin(2 * Math.PI * k) * w);
     return out;
   }
+  /** 0..1: how far apart the roads are at distance `s` (0 at either end of a fork, 1 in the middle; 0 off a fork). */
+  _forkRamp(s) {
+    const f = this._fork(s); if (!f) return 0;
+    const k = (s - f.start * CHUNK_LEN) / (f.len * CHUNK_LEN);
+    return k <= 0 || k >= 1 ? 0 : 0.5 - 0.5 * Math.cos(2 * Math.PI * k);
+  }
   /** Bend a floor mesh along the track: vertices go to world space, aTrack keeps (x, s) for the surface patterns. `drop` sinks it (under a fork's decks). */
   _bendFloor(floor, z0, drop = 0) {
     const g = floor.geometry, base = g.userData.base, pos = g.attributes.position.array, tr = g.attributes.aTrack.array;
@@ -452,17 +459,23 @@ export class Renderer {
    */
   _bendDeck(deck, z0, f, g) {
     const lanes = LANES_TOTAL / f.groups, x0 = roadX(g * lanes) - LANE_W / 2, x1 = roadX(g * lanes + lanes - 1) + LANE_W / 2;
-    const verge = 0.9, cx = (x0 + x1) / 2, width = x1 - x0 + 2 * verge;
+    const cx = (x0 + x1) / 2;
     const geo = deck.geometry, base = geo.userData.base, pos = geo.attributes.position.array, tr = geo.attributes.aTrack.array;
     for (let i = 0; i < geo.attributes.position.count; i++) {
-      const x = cx + base[i * 3] * width, h = base[i * 3 + 1], sAbs = z0 + CHUNK_LEN / 2 + base[i * 3 + 2];
+      const sAbs = z0 + CHUNK_LEN / 2 + base[i * 3 + 2];
+      // Where the roads are still together the decks abut exactly and read as one road; a
+      // verge grows on each as they come apart, so the split starts from a single point.
+      const width = x1 - x0 + 2 * this._deckVerge(sAbs);
+      const x = cx + base[i * 3] * width, h = base[i * 3 + 1];
       this._forkOffset(x, sAbs, g, _OFF); this.track.map(x + _OFF.x, h + _OFF.h, sAbs, 0, _V3);
       pos[i * 3] = _V3.x; pos[i * 3 + 1] = _V3.y; pos[i * 3 + 2] = _V3.z; tr[i * 2] = x; tr[i * 2 + 1] = sAbs;
     }
     geo.attributes.position.needsUpdate = true; geo.attributes.aTrack.needsUpdate = true; geo.computeVertexNormals();
     const u = deck.material.uniforms; u.uRoadMin.value = x0; u.uRoadMax.value = x1;
-    return { x0: x0 - verge, x1: x1 + verge };
+    return { x0, x1 };
   }
+  /** How much verge a fork deck carries at distance `s`: none while the roads are one, most of a metre once they are apart. */
+  _deckVerge(s) { return 0.9 * Math.min(1, this._forkRamp(s) * 3); }
 
   _obstacleVariant(biome, type, v) {
     const list = this.obstacles[BIOMES[biome]]?.[type] || this.obstacles.mountain?.[type];
@@ -487,13 +500,18 @@ export class Renderer {
         const deck = this.deckPool.take(); const { x0, x1 } = this._bendDeck(deck, c.z0, fk, g); v.decks.push(deck);
         const du = deck.material.uniforms; du.uZ0.value = c.z0; du.uBiome.value = biome; du.uSeason.value = season; du.uSnow.value = u.uSnow.value; du.uSurface.value = u.uSurface.value;
         TRACK.fork = g;   // the railings sit on the seam between roads: place them as this road's, not by where they stand
-        for (let b = 0; b < CHUNK_LEN / BEAT_LEN; b++) for (const x of [x0 + 0.12, x1 - 0.12]) {
-          const r = this.pools.forkRail.take(); r.position.set(x, 0, c.z0 + BEAT_LEN * (b + 0.5)); r.rotation.set(0, 0, 0); placeMesh(r); v.meshes.push(r);
+        for (let b = 0; b < CHUNK_LEN / BEAT_LEN; b++) {
+          const s = c.z0 + BEAT_LEN * (b + 0.5); if (this._forkRamp(s) < 0.12) continue;      // no railings until the roads are actually apart
+          const vg = this._deckVerge(s);
+          for (const x of [x0 - vg + 0.12, x1 + vg - 0.12]) { const r = this.pools.forkRail.take(); r.position.set(x, 0, s); r.rotation.set(0, 0, 0); placeMesh(r); v.meshes.push(r); }
         }
         TRACK.fork = null;
       }
     }
-    const light = (x, z, y, i, col) => { if (v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
+    // the corridor the roads swing through on a fork: nothing is dressed there (a house in the middle of a road is a house in the middle of a road)
+    const corridor = fk ? [Math.min(0, ...fk.dirs.map(d => d.x * fk.spread)) - ROAD_HALF - 5, Math.max(0, ...fk.dirs.map(d => d.x * fk.spread)) + ROAD_HALF + 5] : null;
+    const inCorridor = (x) => corridor && x > corridor[0] && x < corridor[1];
+    const light = (x, z, y, i, col) => { if (!inCorridor(x) && v.lights.length < MAX_LIGHTS) v.lights.push({ x, z, y, i, col }); };
 
     for (const cell of c.cells) {
       const x = cellX(cell);
@@ -517,12 +535,12 @@ export class Renderer {
         v.thrown.push({ m, cell, x: trackX(cell.track), start: null, landed: false, wave: true }); continue;
       }
       const kp = cell.thrown ? this.kaijuProps[cell.by]?.[cell.type] : null;
-      const variant = kp ? { geo: kp.geo, mat: kp.mat, name: 'thrown' } : this._obstacleVariant(biome, cell.type, cell.v ?? 0);
+      const variant = kp ? { geo: kp.geo, mat: kp.mat, name: 'thrown' } : cell.herd ? this.deerVariant : this._obstacleVariant(biome, cell.type, cell.v ?? 0);
       if (!variant) continue;
-      const key = kp ? `kaiju:${cell.by}:${cell.type}` : `${biome}:${cell.type}:${cell.v % 8}:${variant.name}`;
+      const key = kp ? `kaiju:${cell.by}:${cell.type}` : cell.herd ? 'herd:deer' : `${biome}:${cell.type}:${cell.v % 8}:${variant.name}`;
       const m = this.pool(key, variant.geo, variant.mat).take(); m.userData.cell = cell;
       const ox = cell.type === 'wide' ? x + LANE_W / 2 : x;
-      const oy = cell.type === 'gap' ? 0.02 : 0, ry = cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;
+      const oy = cell.type === 'gap' ? 0.02 : 0, ry = cell.herd ? (rng() < 0.5 ? 1 : -1) * Math.PI / 2 + (rng() - 0.5) * 0.5 : cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;   // a straggler stands across the lane
       m.position.set(ox, oy, cell.z); m.rotation.set(0, ry, 0); placeMesh(m);   // track space → the spline, like everything else on the road
       if (kp) m.scale.setScalar(kp.scale);
       v.meshes.push(m);
@@ -531,11 +549,16 @@ export class Renderer {
       // the barrel and the buoy roll across the road; the salaryman and the Shiba run across it, facing the way they go
       if (cell.type === 'roller') { const rolls = biome === 0 || biome === 3; m.rotation.order = rolls ? 'YXZ' : 'XYZ'; v.rollers.push({ m, cell, rolls, x: null, yaw: rolls ? 0 : Math.PI }); }
     }
+    // scenery is placed through the mapper: on a fork chunk anything in the corridor is buried instead, and the scenery never knows
+    const realMap = TRACK.map; if (corridor) TRACK.map = (x, h, z, ry, p, q) => realMap(x, inCorridor(x) ? h - 400 : h, z, ry, p, q);
     this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light, shrine: !!pv.shrine });
-    this.grass.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x9a55, c.index)), season, biome);
-    this.flowers.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xf10e, c.index)), season, biome);
-    this.litter.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x1eaf, c.index)), season);
-    if (pv.deer) this.deer.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xdee4, c.index)), 5);
+    TRACK.map = realMap;
+    if (!fk) {   // grass would grow up through a deck lying on the land, and litter would lie on a road that is not there any more
+      this.grass.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x9a55, c.index)), season, biome);
+      this.flowers.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xf10e, c.index)), season, biome);
+      this.litter.fill(c, mulberry32(mixSeed(this.world.seed ^ 0x1eaf, c.index)), season);
+    }
+    if (pv.deer && !fk) this.deer.fill(c, mulberry32(mixSeed(this.world.seed ^ 0xdee4, c.index)), 5);   // not where the roads swing
     if (fireAt(c.index)) {                                                    // the forest fire: flames along both verges, an orange glow on the road
       v.flames = [];
       for (let i = 0; i < 24; i++) { const side = i % 2 ? 1 : -1, x = side * (7.8 + rng() * 9), z = c.z0 + rng() * CHUNK_LEN, s = 1.2 + rng() * 2.4; const k = this.flames.take(compose(x, 0, z, s * 0.8, s, s * 0.8, 0)); if (k >= 0) v.flames.push({ i: k, x, z, s, ph: rng() * 6.28 }); }
@@ -587,7 +610,7 @@ export class Renderer {
     if (seats) this.setCharacters(this.characters);        // a different number of runners needs a different number of rigs
     for (const k of [...this.views.keys()]) this._detachChunk({ index: k });
     for (const c of world.pool.live) this._attachChunk(c);
-    this.train.visible = false; this.trainTimer = 6; this.localTrain.visible = false; this.trainCrossing = null; this.tsunami.visible = false; this.tsunamiX = null;
+    this.train.visible = false; this.trainTimer = 6; this.localTrain.visible = false; this.trainCrossing = null; this.deer.reset(); this.tsunami.visible = false; this.tsunamiX = null;
   }
 
   /** Sim events → visual reactions. */
@@ -622,6 +645,7 @@ export class Renderer {
         if (b) this.sparks.burst(x, y, this.world.distance, _COL.copy(b).multiplyScalar(2.2), 10, 4.2, 1.2);
         break; }
       case 'crossing': this.trainCrossing = { x: -80, z: e.z }; this.localTrain.visible = true; break;
+      case 'herd': this.deer.cross(e.z, 9); break;
       case 'rocket.fire': this.sparks.burst(roadX(e.lane), 0.9, this.world.distance + 1, _COL.setRGB(2.8, 1.6, 0.5), 18, 4, 0.8); break;
       case 'rocket.hit': {
         // the blast: a shock ring on the road, a fireball of sparks, the frame lit for an instant
@@ -888,8 +912,9 @@ export class Renderer {
     // the local train at the level crossing: crosses the road on the rails, left to right, before the runners arrive
     if (this.trainCrossing) { const tc = this.trainCrossing; tc.x += 40 * dt; this.localTrain.position.set(tc.x, 0, tc.z); this.localTrain.rotation.set(0, Math.PI / 2, 0); placeMesh(this.localTrain); if (tc.x > 90) { this.localTrain.visible = false; this.trainCrossing = null; } }
     // shinkansen on the city viaduct
-    if (this.train.visible) { this.trainS -= 62 * dt; this.train.position.set(16, 6.6, this.trainS); this.train.rotation.set(0, 0, 0); placeMesh(this.train); if (this.trainS < w.distance - 70) this.train.visible = false; }
-    else if (biome === 1 && (this.trainTimer -= dt) <= 0) { this.trainTimer = 9 + Math.random() * 8; this.train.visible = true; this.trainS = w.distance + 230; }
+    // the elevated city train runs 16 m off the road at 6.6 m up: exactly where a forked road might swing, so it keeps clear of forks altogether
+    if (this.train.visible) { this.trainS -= 62 * dt; this.train.position.set(16, 6.6, this.trainS); this.train.rotation.set(0, 0, 0); placeMesh(this.train); if (this.trainS < w.distance - 70 || this._fork(this.trainS)) this.train.visible = false; }
+    else if (biome === 1 && !this._fork(w.distance + 230) && !this._fork(w.distance + 120) && (this.trainTimer -= dt) <= 0) { this.trainTimer = 9 + Math.random() * 8; this.train.visible = true; this.trainS = w.distance + 230; }
 
     this.composer.render();
   }

@@ -98,6 +98,8 @@ export const tsunamiAt = (index) => provinceOf(index).id === 'shonan' && index %
 export const fireAt = (index) => provinceOf(index).id === 'hakone' && index % BIOME_LEN >= 11 && index % BIOME_LEN <= 13 && seasonOf(index) !== 3 && !kaijuOf(index);
 /** A level crossing in the suburbs: the chunk where the scenery lays rails (index % 8 === 5), chunk 5 of a suburb section. */
 export const crossingAt = (index) => biomeOf(index) === 2 && index % BIOME_LEN === 5;
+/** A deer crossing where the deer live (Nara): chunk 10 of the section, the herd trots across the road ahead and some of it stays there. */
+export const herdAt = (index) => !!provinceOf(index).deer && index % BIOME_LEN === 10 && !kaijuOf(index);
 // ---- forks: the road splits into separate roads, then joins back up ----------
 //
 // A fork is a run of chunks over which the six lanes are carved into `groups`
@@ -114,15 +116,13 @@ export const crossingAt = (index) => biomeOf(index) === 2 && index % BIOME_LEN =
 export const FORK_GAP = 13;                    // chunks from one fork to the next
 export const FORK_LEN = 4;                     // chunks the roads stay apart (144 m)
 /**
- * Where a road can go while it is on its own: across, up, and the two diagonals,
- * plus (0,0) — one road holding the line while the others peel off it, which is
- * often the best-reading fork of all. Nothing goes *down*: the terrain is a solid
- * plane under the whole road, so a road that dropped would run inside the hill.
+ * Where a road can go while it is on its own: left, right, or holding the line (x), each
+ * either level or climbing onto a raised deck (y). Every road of a fork takes a DIFFERENT
+ * x, so no two of them ever occupy the same ground — a road that climbed over another
+ * would cut through it on the way up and down. Nothing goes *down*: the terrain is a
+ * solid plane under the whole road, so a road that dropped would run inside the hill.
  */
-export const FORK_DIRS = [
-  { x: -1, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 },
-  { x: -1, y: 1 }, { x: 1, y: 1 }, { x: 0, y: 0 },
-];
+export const FORK_X = [-1, 0, 1];
 /** How high a road climbing away from the others gets at the widest point, in metres. */
 export const FORK_LIFT = 7;
 /** Nothing else may be happening across the whole span, or the two features would fight. */
@@ -143,15 +143,10 @@ export function forkAt(seed, index) {
   if (index >= start + FORK_LEN || !forkSpanClear(start)) return null;
   const rng = mulberry32(mixSeed(seed ^ 0x40f8, start));
   const groups = rng.chance(0.45) ? 3 : 2;
-  const dirs = [], used = new Set();
-  for (let g = 0; g < groups; g++) {
-    let d, tries = 0;
-    do { d = FORK_DIRS[rng.int(0, FORK_DIRS.length - 1)]; tries++; } while (used.has(`${d.x},${d.y}`) && tries < 16);
-    used.add(`${d.x},${d.y}`); dirs.push(d);
-  }
-  // Left-to-right order is kept: the leftmost road takes the leftmost direction. Without
-  // this two roads could swap sides and cut straight through each other in the middle.
-  dirs.sort((a, b) => a.x - b.x);
+  // distinct sideways directions, handed out left-to-right so the leftmost road goes leftmost:
+  // roads fan out and never cross, never stack, never share the same ground
+  const xs = FORK_X.slice(); if (groups === 2) xs.splice(rng.int(0, 2), 1);
+  const dirs = xs.map(x => ({ x, y: rng.chance(0.4) ? 1 : 0 }));
   return { start, len: FORK_LEN, groups, dirs, spread: 13 + rng.int(0, 7) };
 }
 /** The six lanes cut into `n` equal roads: one entry per road, each a list of global lanes. */
@@ -167,7 +162,7 @@ export const groupOf = (g, n) => Math.max(0, Math.min(n - 1, Math.floor((g + 0.5
 /** Rockfall on the steep half of the Hakone hike: boulders come down the slope onto the trail. */
 export const rockfallAt = (index) => !!provinceOf(index).hike && index % BIOME_LEN >= 2 && index % BIOME_LEN <= 4 && !kaijuOf(index);
 /** Which set piece owns chunk `index`, or null. */
-export const setpieceAt = (index) => bridgeAt(index) ? 'bridge' : avalancheAt(index) ? 'avalanche' : tsunamiAt(index) ? 'tsunami' : rockfallAt(index) ? 'rockfall' : fireAt(index) ? 'fire' : crossingAt(index) ? 'crossing' : null;
+export const setpieceAt = (index) => bridgeAt(index) ? 'bridge' : avalancheAt(index) ? 'avalanche' : tsunamiAt(index) ? 'tsunami' : rockfallAt(index) ? 'rockfall' : fireAt(index) ? 'fire' : crossingAt(index) ? 'crossing' : herdAt(index) ? 'herd' : null;
 export const SETPIECE = {
   bridge:    { id: 'bridge',    jp: '崩落', en: 'The bridge is giving way',       throws: ['gap'], side: 0 },
   avalanche: { id: 'avalanche', jp: '雪崩', en: 'Avalanche',                     throws: ['drusen', 'stalk'], side: 0 },
@@ -175,6 +170,7 @@ export const SETPIECE = {
   fire:      { id: 'fire',      jp: '山火事', en: 'The bamboo forest is burning', throws: ['stalk', 'drusen'], side: 0 },
   rockfall:  { id: 'rockfall',  jp: '落石',   en: 'Rockfall — boulders on the trail', throws: ['drusen', 'stalk'], side: -1 },
   crossing:  { id: 'crossing',  jp: '踏切', en: 'Level crossing — slide under the gates', throws: [], side: 0 },
+  herd:      { id: 'herd',      jp: '鹿の群れ', en: 'Deer crossing — jump the ones that stopped', throws: [], side: 0 },
 };
 /** Chunks per lap of the itinerary (all eight provinces). */
 export const LAP_LEN = BIOME_LEN * PROVINCES.length;
@@ -338,13 +334,13 @@ function weightedPick(rng, items, weights) {
  * a 3-lane track (base 0 or 3), but on a fork chunk the road is carved into narrower roads
  * and each is generated, and proved solvable, entirely on its own.
  */
-function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal, crossing = false, base = track * LANES, LANES_IN = LANES) {
+function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBeats = new Set(), cfg = DIFFICULTY.normal, crossing = false, base = track * LANES, LANES_IN = LANES, herd = false) {
   const rng = mulberry32(mixSeed(mixSeed(seed, index), 0x7a + track));
   const cells = [], rows = [];
   /** A cell in this group's lane `l` → the global lane as the road's (track, lane), plus the road it is on. */
   const at = (l) => { const g = base + l; return { lane: g % LANES, track: Math.floor(g / LANES), grp: track }; };
   const release = !kaiju && wave < TUNING.releaseBelow && index > 2;         // a thrower's chunk is never a release chunk
-  const wall = !release && !kaiju && !crossing && diff > 0.7 && index % TUNING.wallEvery === 0;
+  const wall = !release && !kaiju && !crossing && !herd && diff > 0.7 && index % TUNING.wallEvery === 0;
   let reach = initialReach(null, LANES_IN);
   let prev = null;
   const empty = () => new Array(LANES_IN).fill(null);
@@ -366,7 +362,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
       if (t === 'wave') { if (l === 0) cells.push({ z: mask.z, ...at(0), type: 'wave', span: LANES_IN, v: v(), ...thrown }); continue; }
       if (t === 'wide') { if (mask.wideLeft === l) cells.push({ z: mask.z, ...at(l), type: 'wide', span: 2, v: v(), ...thrown }); continue; }
       if (t === 'roller') { if (mask.rollerLane === l) cells.push({ z: mask.z, ...at(l), type: 'roller', dir: mask.rollerDir, period: mask.rollerPeriod, v: v() }); continue; }
-      cells.push({ z: mask.z, ...at(l), type: t, v: mask.crossing ? 0 : v(), wall: !!mask.wall, ...thrown });   // crossing gates are variant 0 of the suburb arch
+      cells.push({ z: mask.z, ...at(l), type: t, v: mask.crossing ? 0 : v(), wall: !!mask.wall, ...(mask.herd ? { herd: true } : {}), ...thrown });   // crossing gates are variant 0 of the suburb arch; herd cells are deer
     }
     rows.push(mask);
     reach = stepReach(mask, reach, prev, LANES_IN) || initialReach(mask, LANES_IN);   // never null for committed masks; defensive
@@ -379,6 +375,8 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
     const wallTelegraph = wall && b === 2;          // clear beat before the wall
     if (crossing && b === 1) { const m = empty(); m.z = zb; commit(m); continue; }                                    // the clear beat before the crossing
     if (crossing && b === 2) { const m = empty(); m.z = zb; m.wall = true; m.crossing = true; for (let l = 0; l < LANES_IN; l++) m[l] = 'arch'; commit(m); continue; }   // gate arms down across every lane: slide
+    if (herd && (b === 1 || b === 2)) { const m = empty(); m.z = zb; commit(m); continue; }                                     // room to see the herd
+    if (herd && b === 3) { const m = empty(); m.z = zb; m.herd = true; const open = rng.int(0, LANES_IN - 1); for (let l = 0; l < LANES_IN; l++) if (l !== open) m[l] = 'drusen'; commit(m); continue; }   // deer standing in every lane but one: jump them, or thread the gap
     if (index === 0 || release || breath || wallTelegraph) { const m = empty(); m.z = zb; commit(m); continue; }
     if (!kaiju && !(wall && b === 3) && rng.chance(restChance)) { const m = empty(); m.z = zb; commit(m); continue; }   // a rest beat: nothing to read
 
@@ -462,7 +460,7 @@ function generateTrack(seed, index, track, diff, wave, z0, kaiju = null, waveBea
     const b = rng.int(1, BEATS - 2); const free = freeLanes(rows[b]);
     if (free.length) cells.push({ z: z0 + b * BEAT_LEN + 3, ...at(rng.pick(free)), type: 'power', kind: weightedPick(rng, POWERS, POWER_WEIGHTS), v: v() });
   }
-  return { cells, rows, release, wall: wall || crossing };   // a crossing chunk is straight, like a wall chunk
+  return { cells, rows, release, wall: wall || crossing || herd };   // a crossing chunk is straight, like a wall chunk; so is a herd's
 }
 
 /**
@@ -483,7 +481,7 @@ export function generate(seed, index, cfg = DIFFICULTY.normal) {
   if (kaiju && kaiju.throws.includes('wave')) { const r = mulberry32(mixSeed(seed, index) ^ 0x3a7e); waveBeats.add(r.int(1, 3)); }
   const fork = cfg.forks === false ? null : forkAt(seed, index);
   const groups = fork ? laneGroups(fork.groups) : laneGroups(TRACKS);
-  const tracks = groups.map((lanes, g) => generateTrack(seed, index, g, diff, wave, z0, kaiju, waveBeats, cfg, sp === 'crossing', lanes[0], lanes.length));
+  const tracks = groups.map((lanes, g) => generateTrack(seed, index, g, diff, wave, z0, kaiju, waveBeats, cfg, sp === 'crossing', lanes[0], lanes.length, sp === 'herd'));
   const cells = tracks.flatMap(t => t.cells).sort((a, b) => a.z - b.z);
   return { index, z0, length: CHUNK_LEN, difficulty: diff, wave, release: tracks[0].release, wall: tracks.some(t => t.wall),
     biome: biomeOf(index), season: seasonOf(index), kaiju: kaiju && !kaiju.setpiece ? kaiju : null, setpiece: sp, weather: weatherOf(seed, index),

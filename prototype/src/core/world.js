@@ -1,6 +1,6 @@
 // The simulation: chunk pool + two runners + the typhoon + powers + scoring.
 // Deterministic given (seed, ordered inputs). No rendering here.
-import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, spawnLane, forkAt, groupOf, biomeOf, seasonOf, kaijuOf, provinceOf, weatherOf, setpieceAt, crossingAt, SETPIECE, CHUNK_LEN, DIFFICULTY } from './chunks.js';
+import { ChunkPool, LANES, LANES_TOTAL, rollerLaneAt, globalLane, spawnLane, forkAt, groupOf, herdAt, BEAT_LEN, biomeOf, seasonOf, kaijuOf, provinceOf, weatherOf, setpieceAt, crossingAt, SETPIECE, CHUNK_LEN, DIFFICULTY } from './chunks.js';
 import { mulberry32, mixSeed } from './rng.js';
 import { Player, P, speedAt } from './player.js';
 import { autopilot } from './autopilot.js';
@@ -61,7 +61,7 @@ export class World {
     this.resolved = new Set();    // cells already evaluated
     this.section = { biome: biomeOf(0), season: seasonOf(0) };
     this.kaiju = null; this.setpiece = null; this.dawnT = 0; this.crossingZ = null;
-    this.fork = null; this.forkWarned = -1;
+    this.fork = null; this.forkWarned = -1; this.herdZ = null;
     this.rockets = [];            // bō-hiya in flight: {runner, lane, z, z0}
     this.weather = weatherOf(seed, 0); this.gustRng = mulberry32(mixSeed(seed, 0x9057)); this.nextGust = 6; this.gust = null;
   }
@@ -110,6 +110,8 @@ export class World {
     if (sp !== this.setpiece) { this.setpiece = sp; this._emit({ type: 'setpiece', kind: sp, spec: sp ? SETPIECE[sp] : null, index: idx }); }
     // a level crossing ahead: the bell starts and the train crosses well before the runners arrive
     for (let k = 0; k < 5; k++) { const i = idx + k; if (!crossingAt(i)) continue; const z = i * CHUNK_LEN + 18; if (this.distance > z - 130 && this.crossingZ !== z) { this.crossingZ = z; this._emit({ type: 'crossing', z, index: i }); } break; }
+    // a deer crossing ahead: the herd trots across the road well before the runners reach the stragglers
+    for (let k = 0; k < 5; k++) { const i = idx + k; if (!herdAt(i)) continue; const z = i * CHUNK_LEN + 3 * BEAT_LEN; if (this.distance > z - 120 && this.herdZ !== z) { this.herdZ = z; this._emit({ type: 'herd', z, index: i }); } break; }
     this._forks(idx);
     // --- weather: per section; gusts shove every runner a lane (telegraphed), slick roads slow lane changes
     const wx = weatherOf(this.seed, idx);

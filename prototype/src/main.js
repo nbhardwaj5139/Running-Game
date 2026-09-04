@@ -164,6 +164,7 @@ function newWorld() {
         if (e.at === 'split') { hud.power.textContent = '⑂ NO WAY ACROSS UNTIL THE ROADS MEET'; hud.power.classList.add('on'); powerT = 2; }
         if (e.at === 'join') { hud.power.textContent = '合流 THE ROADS ARE ONE AGAIN'; hud.power.classList.add('on'); powerT = 1.6; }
       }
+      if (e.type === 'herd' && running) { hud.power.textContent = '鹿 DEER ON THE ROAD AHEAD'; hud.power.classList.add('on'); powerT = 2; }
       if (e.type === 'kaiju' && e.kaiju) { hud.toastJp.textContent = e.kaiju.jp; hud.toastEn.textContent = `KAIJU — ${e.kaiju.en}`; hud.toast.classList.add('on'); toastT = 3; hud.power.textContent = '⚠ ' + e.kaiju.en.split(',')[0].toUpperCase() + (e.kaiju.fire ? ' IS BREATHING FIRE' : ' IS THROWING'); hud.power.classList.add('on'); powerT = 2.5; }
       if (e.type === 'death') onDeath(e);
     },

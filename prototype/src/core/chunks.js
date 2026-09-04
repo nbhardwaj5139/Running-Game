@@ -77,7 +77,14 @@ export const SETPIECE = {
   bridge:    { id: 'bridge',    jp: '崩落', en: 'The bridge is giving way', throws: ['gap'], side: 0 },
   avalanche: { id: 'avalanche', jp: '雪崩', en: 'Avalanche',               throws: ['drusen', 'stalk'], side: 0 },
 };
-export const seasonOf = (index) => Math.floor(Math.max(0, index) / SEASON_LEN) % SEASONS.length;
+/** Chunks per lap of the itinerary (all eight provinces). */
+export const LAP_LEN = BIOME_LEN * PROVINCES.length;
+/**
+ * The year turns every SEASON_LEN chunks, and every lap of the itinerary starts one season
+ * later than the last: a lap is exactly one year, so without the offset each province would
+ * be frozen in one season forever (Kyoto always spring, and no winter shrine descent — no avalanche).
+ */
+export const seasonOf = (index) => { const i = Math.max(0, index); return (Math.floor(i / SEASON_LEN) + Math.floor(i / LAP_LEN)) % SEASONS.length; };
 /** 0..1 progress through the current season section (for blends at the boundary). */
 export const seasonBlend = (index) => (Math.max(0, index) % SEASON_LEN) / SEASON_LEN;
 

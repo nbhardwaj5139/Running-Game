@@ -46,7 +46,8 @@ test('every track of every chunk is solvable (2000 seeds x 60 chunks x 2 tracks)
 
 test('sections and lane helpers', () => {
   assert.equal(biomeOf(0), 0); assert.equal(biomeOf(BIOME_LEN), 1); assert.equal(biomeOf(BIOME_LEN * 4), 0);
-  assert.equal(seasonOf(0), 0); assert.equal(seasonOf(SEASON_LEN * 3), 3); assert.equal(seasonOf(SEASON_LEN * 4), 0);
+  assert.equal(seasonOf(0), 0); assert.equal(seasonOf(SEASON_LEN * 3), 3); assert.equal(seasonOf(SEASON_LEN * 4), 1, 'the second lap starts a season later');
+  assert.equal(seasonOf(SEASON_LEN * 8), 2); assert.equal(seasonOf(SEASON_LEN * 16), 0);
   assert.equal(globalLane(1, 0), 3); assert.equal(trackOf(2.4), 0); assert.equal(trackOf(2.6), 1);
   assert.ok(Math.abs(roadX((LANES_TOTAL - 1) / 2)) < 1e-9); assert.ok(roadX(0) < 0 && roadX(5) > 0);
 });

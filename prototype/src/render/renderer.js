@@ -348,11 +348,12 @@ export class Renderer {
       const key = kp ? `kaiju:${cell.by}:${cell.type}` : `${biome}:${cell.type}:${cell.v % 8}:${variant.name}`;
       const m = this.pool(key, variant.geo, variant.mat).take(); m.userData.cell = cell;
       const ox = cell.type === 'wide' ? x + LANE_W / 2 : x;
-      m.position.set(ox, cell.type === 'gap' ? 0.02 : 0, cell.z); m.rotation.y = cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;
+      const oy = cell.type === 'gap' ? 0.02 : 0, ry = cell.type === 'roller' || cell.type === 'wide' ? 0 : (rng() - 0.5) * 0.25;
+      m.position.set(ox, oy, cell.z); m.rotation.set(0, ry, 0); placeMesh(m);   // track space → the spline, like everything else on the road
       if (kp) m.scale.setScalar(kp.scale);
       v.meshes.push(m);
       if (cell.thrown) { m.visible = false; v.thrown.push({ m, cell, x: ox, start: null, landed: false, scale: kp?.scale ?? 1 }); }
-      if (variant.glow) { const g = this.pool(key + ':glow', variant.glow.geo, variant.glow.mat).take(); g.position.copy(m.position); g.rotation.copy(m.rotation); v.meshes.push(g); }
+      if (variant.glow) { const g = this.pool(key + ':glow', variant.glow.geo, variant.glow.mat).take(); g.position.set(ox, oy, cell.z); g.rotation.set(0, ry, 0); placeMesh(g); v.meshes.push(g); }
       if (cell.type === 'roller') v.rollers.push({ m, cell });
     }
     this.scenery.dress(c, { rng, z0: c.z0, len: CHUNK_LEN, biome, season, night, light });

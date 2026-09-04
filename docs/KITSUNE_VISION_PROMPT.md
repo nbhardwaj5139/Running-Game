@@ -16,7 +16,7 @@ A fox spirit runs the old road from Kyoto to Okinawa while a typhoon chases it. 
 2. **Readable, fair, satisfying running.** One verb per obstacle (lane, jump, slide), always solvable, near misses rewarded, hits explained. Speed is the fun. Never slow the player down as a "power".
 3. **A journey, not a loop.** Long distinct stretches, each a real province with its own landmarks, then the season changes. The player should feel like they travelled.
 4. **Things happen.** Kaiju, collapsing bridges, avalanches, deer that bow, weather that changes the rules, powers that change how you move.
-5. **Two people on one keyboard.** Two runners on one road, able to cross over and barge each other, chased by the same typhoon.
+5. **Two people, one road.** Two runners on one road, able to cross over and barge each other, chased by the same typhoon — on one keyboard, or on two laptops over the network (`?coop=NAME`), which is the same shared world either way.
 
 ## 3. Setting: the itinerary
 

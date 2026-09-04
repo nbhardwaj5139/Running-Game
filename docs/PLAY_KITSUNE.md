@@ -100,6 +100,17 @@ Spring brings cherry petals, summer fireflies and festival lanterns, autumn red 
 
 The link above is the game. Anyone with it can play in their own browser. The road, the powers and the scoring all run on the player's own machine.
 
-**Racing on two laptops:** run the game from the repo (`npm install && npm run dev`) and open `http://<host>:8080/?room=NAME` on every laptop — the room name is the road. Type a name, hit **RACE**; when everyone has, the run starts on the same 3-2-1 count. Your rivals run beside you as ghosts with name tags, the HUD shows who is ahead, and every finished run is checked by replaying it on the server before the standings go up.
+**Playing together on two laptops (co-op — your friend is the second runner):**
+
+1. On your machine, from the repo: `npm install && npm run dev`.
+2. Find your machine's address on the network (`ipconfig getifaddr en0` on a Mac, `hostname -I` on Linux, `ipconfig` on Windows).
+3. Both of you open **the same link**: `http://<your-ip>:8080/?coop=NAME` — pick any word for `NAME`; it is the road.
+4. Type your names, hit **RUN TOGETHER** on both. The road starts on a shared 3-2-1 count.
+
+You are player 1 on the right road, your friend is player 2 on the left, and it is genuinely one run: one road, one typhoon bar, one score. You can cross into each other's lanes and barge each other into posts, exactly like two players on one keyboard — just on two machines. Whoever readies first sets the difficulty and god mode for both.
+
+Only your keypresses cross the network, never the game state: the simulation is deterministic, so both laptops run the identical world from the same inputs. A co-op road seats exactly two; a third person opening the link is told it is full.
+
+**Racing on two laptops (everyone runs their own road):** run the game from the repo (`npm install && npm run dev`) and open `http://<host>:8080/?room=NAME` on every laptop — the room name is the road. Type a name, hit **RACE**; when everyone has, the run starts on the same 3-2-1 count. Your rivals run beside you as ghosts with name tags, the HUD shows who is ahead, and every finished run is checked by replaying it on the server before the standings go up.
 
 Game link: https://claude.ai/code/artifact/e0197a09-0ff0-403b-8e1f-f7991f1fcca9

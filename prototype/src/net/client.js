@@ -16,20 +16,22 @@ function loadSocketIo() {
 
 export class NetClient {
   /** on: { status, welcome, players, start, death, result, standings, leave } */
-  constructor({ room, name, character, on = {} }) {
-    this.room = cleanRoom(room); this.name = cleanName(name); this.character = character; this.on = on;
+  constructor({ room, name, character, coop = false, on = {} }) {
+    this.room = cleanRoom(room); this.name = cleanName(name); this.character = character; this.coop = !!coop; this.on = on;
     this.id = null; this.connected = false; this.offset = 0; this.rtt = 0; this.lastHint = 0;
     this.players = []; this.state = 'lobby'; this.difficulty = 'normal'; this.ghosts = new Map();
+    this.slot = null; this.god = false;
   }
 
   async connect() {
     const io = await loadSocketIo();
     const s = this.socket = io({ transports: ['websocket'] });
-    s.on('connect', () => { this.connected = true; s.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character }); this.on.status?.('connected'); });
+    s.on('connect', () => { this.connected = true; s.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character, coop: this.coop }); this.on.status?.('connected'); });
     s.on('disconnect', () => { this.connected = false; this.on.status?.('offline'); });
-    s.on(MSG.WELCOME, (m) => { this.id = m.id; this.state = m.state; this.difficulty = m.difficulty; this.players = m.players; this._syncClock(m.serverNow, performance.now()); this.on.welcome?.(m); this._ping(); clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this._ping(), 4000); });
+    s.on(MSG.WELCOME, (m) => { this.id = m.id; this.state = m.state; this.difficulty = m.difficulty; this.players = m.players; this.slot = m.slot ?? null; if (m.full) this.on.full?.(m); this._syncClock(m.serverNow, performance.now()); this.on.welcome?.(m); this._ping(); clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this._ping(), 4000); });
     s.on(MSG.PLAYERS, (m) => { this.players = m.players; if (m.state) this.state = m.state; this.on.players?.(m); });
-    s.on(MSG.START, (m) => { this.state = 'countdown'; this.difficulty = m.difficulty; this.players = m.players; this.ghosts.clear(); this.on.start?.({ ...m, inMs: Math.max(0, m.at - this.serverNow()) }); });
+    s.on(MSG.START, (m) => { this.state = 'countdown'; this.difficulty = m.difficulty; this.players = m.players; this.god = !!m.god; if (m.slot !== undefined) this.slot = m.slot; this.ghosts.clear(); this.on.start?.({ ...m, inMs: Math.max(0, m.at - this.serverNow()) }); });
+    s.on(MSG.COOP, (m) => { if (m && m.from !== this.id) this.on.coop?.(m); });
     s.on(MSG.HINT, (m) => {
       if (m.id === this.id) return;
       const now = performance.now() / 1000, g = this.ghosts.get(m.id) || { id: m.id, z0: 0, v: 0, t: 0 };
@@ -49,8 +51,12 @@ export class NetClient {
   _ping() { this.socket?.emit(MSG.PING, { t: performance.now() }); }
 
   /** Change name or character: joining again with the same socket replaces the room's entry for us. */
-  rejoin({ name = this.name, character = this.character } = {}) { this.name = cleanName(name); this.character = character; if (this.connected) this.socket.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character }); }
-  ready(ready, difficulty) { this.socket?.emit(MSG.READY, { ready, difficulty }); }
+  rejoin({ name = this.name, character = this.character } = {}) { this.name = cleanName(name); this.character = character; if (this.connected) this.socket.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character, coop: this.coop }); }
+  /** Co-op: the other laptop. */
+  get peer() { return this.players.find(p => p.id !== this.id) || null; }
+  ready(ready, difficulty, god) { this.socket?.emit(MSG.READY, { ready, difficulty, god }); }
+  /** Co-op: send a lockstep batch (inputs + the tick we promise to have covered). */
+  coopSend(batch) { this.socket?.emit(MSG.COOP, batch); }
   /** Call every frame while running: sends a hint at HINT_HZ. */
   hint(now, w) {
     if (!this.connected || now - this.lastHint < 1000 / HINT_HZ) return;

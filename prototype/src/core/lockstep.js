@@ -17,15 +17,27 @@
 export const COOP_DELAY = 6;            // ticks of input delay (100 ms at 60 Hz)
 
 export class Lockstep {
-  /** @param world the shared World  @param slot which runner this machine drives (0 left, 1 right) */
-  constructor(world, slot, delay = COOP_DELAY) {
+  /**
+   * @param world the shared World
+   * @param slot  which runner this machine drives
+   * @param peers the other slots on this road. With more than two machines the promise
+   *   that matters is the SLOWEST one: a tick may only run once every peer has said it
+   *   has no more inputs for it, so `ready` takes the minimum over all of them.
+   */
+  constructor(world, slot, delay = COOP_DELAY, peers = null) {
     this.world = world; this.slot = slot; this.delay = delay;
     this.pending = new Map();               // tick -> [{t, slot, seq, evt}]
-    this.remoteUpTo = delay - 1;            // what the peer has promised so far (enough to start)
+    this.upTo = new Map();                  // peer slot -> the tick it has promised to have covered
+    for (const s of peers ?? [1 - slot]) if (s !== slot) this.upTo.set(s, delay - 1);   // enough to start
     this.seq = 0;
     this.outbox = [];
     this.stalled = 0;                       // ticks we wanted to run but could not
   }
+
+  /** A machine left the road: stop waiting on it, or everyone else freezes forever. */
+  drop(slot) { this.upTo.delete(slot); }
+  /** What the peer has promised (the slowest of them, when there is more than one). */
+  get remoteUpTo() { let m = Infinity; for (const v of this.upTo.values()) m = Math.min(m, v); return m === Infinity ? this.world.tick + this.delay : m; }
 
   _at(t) { let a = this.pending.get(t); if (!a) this.pending.set(t, a = []); return a; }
 
@@ -37,19 +49,25 @@ export class Lockstep {
   }
 
   /** Take a peer batch: its inputs, and the tick it promises to have covered. */
-  remote({ inputs = [], upTo = 0 } = {}) {
+  remote({ inputs = [], upTo = 0, slot = null } = {}) {
+    let from = slot;
     for (const r of inputs) {
       if (r.slot === this.slot) continue;                 // never re-apply our own echo
+      from ??= r.slot;
       if (r.t <= this.world.tick) continue;               // impossible if both honour `upTo`; ignore rather than desync
       this._at(r.t).push(r);
     }
-    if (upTo > this.remoteUpTo) this.remoteUpTo = upTo | 0;
+    // An empty batch carries no slot of its own, but an empty batch is exactly how a
+    // quiet peer keeps everyone moving — with a single peer there is no ambiguity.
+    if (from === null && this.upTo.size === 1) from = [...this.upTo.keys()][0];
+    if (from === null || from === this.slot) return;
+    if (upTo > (this.upTo.get(from) ?? -1)) this.upTo.set(from, upTo | 0);
   }
 
   /** Everything to send now, plus the promise that comes with it. Call even with no inputs: the promise is what unblocks the peer. */
   drain() {
     const inputs = this.outbox; this.outbox = [];
-    return { inputs, upTo: this.world.tick + this.delay - 1 };
+    return { inputs, upTo: this.world.tick + this.delay - 1, slot: this.slot };
   }
 
   /** True while the peer's inputs for the next tick are known. */

@@ -6,7 +6,7 @@
 // bounded turn window so the live road never folds over itself, a pitch budget).
 import * as THREE from 'three';
 import { mulberry32, mixSeed } from '../core/rng.js';
-import { CHUNK_LEN, BEAT_LEN, kaijuOf, generate, shrineClimbPitch } from '../core/chunks.js';
+import { CHUNK_LEN, BEAT_LEN, kaijuOf, generate, shrineClimbPitch, hikeClimbPitch } from '../core/chunks.js';
 
 const SEG = BEAT_LEN;                       // one control point per beat (6 m)
 const TURNS = [0, 0, 0, 0, 18, -18, 32, -32, 45, -45];
@@ -27,6 +27,10 @@ export class Track {
     if (index < 2 || kaijuOf(index)) return [0, 0];
     const stairs = shrineClimbPitch(index); if (stairs !== null) return [0, stairs];   // the shrine stairs: straight up, flat top, straight down
     const rng = mulberry32(mixSeed(this.seed ^ 0x7ac, index));
+    // The Hakone trail climbs on a fixed profile but switchbacks as it goes — a mountain
+    // path bends around the slope, and the turns are what make it read as a hike.
+    const hike = hikeClimbPitch(index);
+    if (hike !== null) { const t = [0, 0, 18, -18, 32, -32][rng.int(0, 5)]; return [Math.abs(hike) > 12 && Math.abs(t) >= 32 ? 18 * Math.sign(t) : t, hike]; }
     const c = generate(this.seed, index); if (c.wall) return [0, 0];
     const lastSharp = this.recent.length && Math.abs(this.recent[this.recent.length - 1]) >= 32;
     let turn = TURNS[rng.int(0, TURNS.length - 1)];

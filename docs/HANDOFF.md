@@ -105,7 +105,25 @@ enters co-op, `?seed=`, `?diff=`, `?god=1`, `?mode=`, `?p1=`, `?p2=`, `?bloom=0`
 - Sections: `BIOME_LEN = 16` chunks per province (576 m), `SEASON_LEN = 32`, eight
   provinces per lap, and the season index is offset by the lap so each province sees all
   four seasons over time (that is what makes the winter avalanche reachable).
-- 11 powers, weighted; `POWER_INFO` in chunks.js is the single source of names/blurbs/colours.
+- 12 powers, weighted; `POWER_INFO` in chunks.js is the single source of names/blurbs/colours.
+  The rocket (`rocket`) is the one *armed* power: the pickup sets `player.rocket`, an input
+  `{kind:'fire'}` (Space; F for local player 2) launches it — and is a plain jump when nothing
+  is loaded, decided in `Player.input`, so co-op machines never disagree. `World._rockets`
+  flies it and marks what it destroys `cell.gone` (Susanoo's strikes do the same now), which
+  every runner's collision loop skips.
+- **Forks** (`forkAt`, `laneGroups`, `groupOf` in chunks.js): every `FORK_GAP` = 13 chunks, when
+  nothing else is happening across the span, the six lanes are carved into 2 roads of 3 or
+  3 roads of 2 for `FORK_LEN` = 4 chunks. Generation runs per road (`generateTrack` takes a
+  base lane and a width) so each is solvable alone; every cell carries `grp`. The World locks
+  each runner to the road under them at the split (`laneMin`/`laneMax`, `group`), filters
+  collisions and barges by group, and emits `fork` events (`ahead` → `split` → `join`).
+  `opts.forks === false` turns them off — main.js does that for local 2P only, because one
+  camera cannot follow two roads. Every co-op machine must agree on the flag (they all send true).
+  Rendering: `Renderer._forkOffset` adds each road's drift/lift/crab-yaw inside `TRACK.map`,
+  so props, coins, runners and the camera ride their road for free; the land loses its road
+  paint under a fork and each road becomes a bent deck (`_bendDeck`) with short railings.
+  `TRACK.fork` forces a road index for things that sit on the seam (the railings); the camera
+  uses it to stay with `renderer.focus` (your slot online, the fox otherwise).
 - Set pieces are pure functions of chunk index (`setpieceAt`): bridge, avalanche, tsunami,
   fire, level crossing. Kaiju occupy the last 2 chunks of a season.
 
@@ -174,7 +192,7 @@ socket keeps the network busy so `networkidle` never fires.
 ## 8. Where things stand / open items
 
 **Working:** solo, local 2P, online race, online co-op, generative sound, five set pieces,
-kaiju, 11 powers, eight provinces, four seasons, adaptive performance.
+kaiju, 12 powers, eight provinces, four seasons, forks, adaptive performance.
 
 **Live blocker (environmental, not code):** the owner is trying to host co-op for a friend
 on Windows. Diagnosed so far:
@@ -189,7 +207,7 @@ on Windows. Diagnosed so far:
   machines to a phone hotspot (hotspots do not isolate clients) and re-run the script.
 - A Cloudflare quick tunnel was tried and abandoned; the user disliked it.
 
-**Not started / ideas:** more set pieces (festival float, lantern festival, fireworks);
+**Not started / ideas:** the rocket's blast could scare deer / knock the kaiju's hand; more set pieces (festival float, lantern festival, fireworks);
 a persistent named tunnel for remote co-op; more than two players in co-op (the lockstep
 generalises, the room seating does not).
 

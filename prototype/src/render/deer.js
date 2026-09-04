@@ -1,5 +1,7 @@
-// Nara deer: low-poly sika deer that graze in the verges, trot along the road,
-// and bow as a runner passes. Track-space kinematics; placed through the mapper.
+// Nara deer: low-poly sika deer that graze in the verges, trot along the road
+// (in one direction: when they reach the end of their stretch they stop and graze,
+// they never turn on the spot), and bow as a runner passes. Track-space kinematics;
+// placed through the mapper.
 import * as THREE from 'three';
 import { placeMesh, paint, merge } from './common.js';
 import { CHUNK_LEN } from '../core/chunks.js';
@@ -42,7 +44,10 @@ export function makeDeer(parent) {
       t += dt;
       for (const list of live.values()) for (const d of list) {
         const st = d.st, r = d.rig;
-        if (st.run) { st.s += st.speed * st.dir * dt; if (st.s < st.s0 + 2 || st.s > st.s0 + CHUNK_LEN - 2) st.dir *= -1; st.yaw = st.dir > 0 ? 0 : Math.PI; }
+        if (st.run) {
+          st.s += st.speed * st.dir * dt; st.yaw = st.dir > 0 ? 0 : Math.PI;
+          if (st.s < st.s0 + 2 || st.s > st.s0 + CHUNK_LEN - 2) { st.run = false; st.s = Math.max(st.s0 + 2, Math.min(st.s0 + CHUNK_LEN - 2, st.s)); st.yaw += (st.x > 0 ? -1 : 1) * 0.9; }   // pulls up, turns its head to the verge, grazes
+        }
         const near = Math.abs(st.s - runnerS) < 7 && !st.run;
         st.bow += ((near ? 1 : 0) - st.bow) * Math.min(1, dt * 3);                       // bows as a runner passes
         r.neck.rotation.x = st.bow * 0.9 + (st.run ? Math.sin(t * 9 + st.ph) * 0.08 : Math.sin(t * 1.5 + st.ph) * 0.05);

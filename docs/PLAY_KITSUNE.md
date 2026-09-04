@@ -1,6 +1,6 @@
 # KITSUNE — 狐 · a run across Japan
 
-A 3D endless runner. A fox spirit runs the old road from Kyoto to Okinawa while a typhoon chases it. Shrine stairs, neon cities, rice paddies, coast roads, four seasons, kaiju, and twelve spirit powers. Runs in any modern browser, nothing to install.
+A 3D endless runner. A fox spirit runs the old road from Kyoto to Okinawa while a typhoon chases it. Shrine stairs, neon cities, rice paddies, coast roads, four seasons, kaiju, forking roads, and twelve spirit powers. Runs in any modern browser, nothing to install.
 
 **Play it here:** https://claude.ai/code/artifact/e0197a09-0ff0-403b-8e1f-f7991f1fcca9
 
@@ -22,12 +22,14 @@ The road is the same six lanes whether one or two people are running.
 |---|---|---|
 | Change lane | `←` / `→` | `A` / `D` |
 | Jump (hold for a higher jump) | `↑` or `Space` | `W` |
+| Fire a loaded rocket | `Space` | `F` |
 | Slide / fast-fall in the air | `↓` | `S` |
 | Pause / resume | `Esc` or `P` | |
 | Sound on / off | `M` | |
+| Volume | the slider beside the ♪ button | |
 | Restart | `R` | |
 
-In 1-player mode both the arrows and WASD drive the fox. On a touchscreen, swipe: left and right to change lane, up to jump, down to slide, tap to jump.
+In 1-player mode both the arrows and WASD drive the fox. On a touchscreen, swipe: left and right to change lane, up to jump, down to slide, tap to jump; a FIRE button appears while a rocket is loaded.
 
 In 2-player mode you share one keyboard. Either runner can cross onto the other half of the road and barge the other one sideways. One typhoon chases both of you.
 
@@ -63,6 +65,7 @@ Pickups sit on the road with a coloured halo. The moment you take one, a banner 
 | 須佐 Susanoo Storm-break | Lightning clears the next 60 m and shoves the typhoon back. |
 | 鈴 Kagura Bell | Every hazard in the next 40 m turns into coins. |
 | 烏 Yatagarasu Guide | The three-legged crow runs for you for 10 seconds. |
+| 棒火矢 Bō-hiya Rocket | Loads a rocket. `Space` (`F` for player 2) fires it down your lane; it goes off on the first thing it meets and blows apart everything within a few metres and a lane either side. Nothing loaded? `Space` is still a jump. |
 
 ## The journey
 
@@ -85,7 +88,9 @@ Spring brings cherry petals, summer fireflies and festival lanterns, autumn red 
 
 **Set pieces:** a wooden bridge that gives way under you as you cross it; a level crossing in the suburbs (the bell rings, a train crosses ahead, then the gate arms drop across every lane — slide); a tsunami on the Shōnan coast (a wall of water leans over the road, boats and buoys wash across it, surges span the road — jump them); a bamboo forest fire on the Hakone road (burning bamboo and logs fall in from both sides); and an avalanche that chases you down the winter shrine stairs. Seasons shift by one each lap of the itinerary, so Hakone is under snow on your second time round.
 
-**Sound:** the music is written on the fly — one theme per province, a scale per season, faster as you run, taiko when a kaiju rises. Every pickup gets a shamisen sting; a temple bell rings for each new province. Press `M` to mute.
+**Forks:** every so often the road splits — two or three separate roads pull away from each other, sideways or up onto a raised deck, and come back together 144 m later. A banner calls it a chunk ahead: *pick a side*. You take whichever road your lanes are on when it splits, and there is no way across until the roads meet again; each road is generated so it can be run on its own. Online, the camera stays with your runner's road. On one shared screen (2-player) the road never forks.
+
+**Sound:** the music is written on the fly — one theme per province, a scale per season, faster as you run, taiko when a kaiju rises. Every pickup gets a shamisen sting; a temple bell rings for each new province. Press `M` to mute, or drag the slider beside the ♪ button.
 
 ## Tips
 

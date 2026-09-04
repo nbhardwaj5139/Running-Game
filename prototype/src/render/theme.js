@@ -11,7 +11,9 @@
 import * as THREE from 'three';
 
 export const SEASON_LABEL = [{ jp: '春', en: 'Spring' }, { jp: '夏', en: 'Summer' }, { jp: '秋', en: 'Autumn' }, { jp: '冬', en: 'Winter' }];
-export const BIOME_LABEL = [{ jp: '山', en: 'Mountain shrine path' }, { jp: '都', en: 'City' }, { jp: '郊外', en: 'Suburbs' }, { jp: '海岸', en: 'Coast road' }];
+export const BIOME_LABEL = [{ jp: '山', en: 'Mountain road' }, { jp: '都', en: 'City' }, { jp: '郊外', en: 'Suburbs' }, { jp: '海岸', en: 'Coast road' }];
+/** What the mountain actually is in this province: a shrine climb, a hiking trail, or just road. */
+export const roadLabel = (province, biome) => province?.shrine ? { jp: '参道', en: 'Shrine path' } : province?.hike ? { jp: '登山道', en: 'Mountain trail' } : BIOME_LABEL[biome];
 
 // Colour keys and scalar keys of a palette entry (all lerped between day and night).
 const COLOR_KEYS = ['skyTop', 'skyMid', 'horizon', 'fog', 'sun', 'hemiSky', 'hemiGround', 'cloud', 'cloudShadow', 'grass', 'foliage', 'water'];

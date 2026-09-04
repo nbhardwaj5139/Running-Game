@@ -27,8 +27,12 @@ export function autopilot(world, p) {
   const speed = world.speed;
   const ahead = 4 + Math.min(16, speed * 0.7);
   const rows = new Map(); const coins = new Array(LANES_TOTAL).fill(0);
-  const home = p.home, lo = home * LANES, hi = lo + LANES - 1;              // the companion keeps to its home track
-  const other = world.runners[1 - p.id];
+  // The companion keeps to its home track, and — while the road is forked — to the road it
+  // was locked onto, which may be narrower than that track or straddle the seam between two.
+  const home = p.home;
+  let lo = Math.max(p.laneMin, home * LANES), hi = Math.min(p.laneMax, home * LANES + LANES - 1);
+  if (lo > hi) { lo = p.laneMin; hi = p.laneMax; }
+  const others = world.runners.filter(r => r !== p && !r.disabled);
   for (const c of world.pool.live) {
     if (c.z0 > p.z + ahead || c.z0 + c.length < p.z - 1) continue;
     for (const cell of c.cells) {
@@ -55,7 +59,7 @@ export function autopilot(world, p) {
       let s = v0[l] === 'free' ? 10 : v0[l] === 'block' ? -100 : 4;
       s += v1[l] === 'free' ? 3 : v1[l] === 'block' ? -2 : 0;
       s += coins[l] * 1.5 - Math.abs(l - p.lane) * 1.2;
-      if (Math.abs(l - other.xLane) < 1.2) s -= 40;                        // never barge the player
+      if (others.some(o => Math.abs(l - o.xLane) < 1.2)) s -= 40;          // never barge anyone else
       if (s > bestScore) { bestScore = s; best = l; }
     }
     if (best !== p.lane) { world.input(p.id, { kind: 'lane', dir: Math.sign(best - p.lane) }); return; }

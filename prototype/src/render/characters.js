@@ -6,19 +6,38 @@ import * as THREE from 'three';
 import { buildRig } from './props.js';
 
 const HPI = Math.PI / 2;
+/**
+ * Every character carries one signature colour, spread right around the wheel so no two
+ * read alike at speed: it is the scarf they run in, the colour of their trail and the
+ * ring under their feet. Two white animals are still told apart instantly by their scarf.
+ */
 export const CHARACTERS = [
-  { id: 'kitsune', jp: '狐', en: 'Kitsune', blurb: 'Fox spirit, messenger of Inari', trail: [0.5, 1.2, 2.4] },
-  { id: 'tanuki', jp: '狸', en: 'Tanuki', blurb: 'Shape-shifting raccoon dog', trail: [1.6, 1.1, 0.5] },
-  { id: 'shiba', jp: '柴犬', en: 'Shiba', blurb: 'The loyal little dog of Japan', trail: [1.8, 0.9, 0.4] },
-  { id: 'neko', jp: '招き猫', en: 'Maneki-neko', blurb: 'The beckoning lucky cat', trail: [2.0, 1.6, 1.8] },
-  { id: 'kappa', jp: '河童', en: 'Kappa', blurb: 'River yōkai with a water dish', trail: [0.5, 2.0, 1.0] },
-  { id: 'tengu', jp: '天狗', en: 'Tengu', blurb: 'Long-nosed mountain spirit', trail: [2.2, 0.5, 0.4] },
-  { id: 'usagi', jp: '月の兎', en: 'Moon Rabbit', blurb: 'Pounds mochi on the moon', trail: [1.4, 1.6, 2.4] },
+  { id: 'kitsune', jp: '狐', en: 'Kitsune', blurb: 'Fox spirit, messenger of Inari', color: '#ff5a3c', trail: [2.4, 0.7, 0.4] },
+  { id: 'tanuki', jp: '狸', en: 'Tanuki', blurb: 'Shape-shifting raccoon dog', color: '#ffb02e', trail: [2.4, 1.5, 0.35] },
+  { id: 'shiba', jp: '柴犬', en: 'Shiba', blurb: 'The loyal little dog of Japan', color: '#ffe94d', trail: [2.4, 2.1, 0.5] },
+  { id: 'neko', jp: '招き猫', en: 'Maneki-neko', blurb: 'The beckoning lucky cat', color: '#3fd96b', trail: [0.4, 2.3, 0.8] },
+  { id: 'kappa', jp: '河童', en: 'Kappa', blurb: 'River yōkai with a water dish', color: '#2fd3e0', trail: [0.35, 2.0, 2.4] },
+  { id: 'tengu', jp: '天狗', en: 'Tengu', blurb: 'Long-nosed mountain spirit', color: '#5a7cff', trail: [0.6, 1.0, 2.5] },
+  { id: 'usagi', jp: '月の兎', en: 'Moon Rabbit', blurb: 'Pounds mochi on the moon', color: '#c96bff', trail: [1.7, 0.7, 2.5] },
 ];
 export const characterById = (id) => CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
+/** Runners read a little small against a six-lane road; this is the base size of every rig. */
+export const CHAR_SCALE = 1.25;
+
+/** The signature scarf: a band at the neck plus a tail streaming behind. Same shape on every rig. */
+function addScarf(rig, hex, M) {
+  const mat = M(hex); const h = rig.head?.position;
+  const y = (h?.y ?? 0.62) - 0.13, z = (h?.z ?? 0.2) - 0.06;
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.045, 6, 14), mat);
+  band.position.set(0, y, z); band.rotation.set(HPI * 0.86, 0, 0); rig.group.add(band);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.38), mat);
+  tail.position.set(0.05, y + 0.02, z - 0.26); tail.rotation.set(0.25, 0.15, 0.2); rig.group.add(tail);
+  return mat;
+}
 
 export function buildCharacter(id, matFactory) {
-  if (id === 'kitsune' || id === 'tanuki') return buildRig(id, matFactory);
+  const ch = characterById(id);
+  if (id === 'kitsune' || id === 'tanuki') { const r = buildRig(id, matFactory); r.mats.push(addScarf(r, ch.color, matFactory)); return r; }
   const g = new THREE.Group(); const mats = []; const M = (hex) => { const m = matFactory(hex); mats.push(m); return m; };
   const add = (parent, geo, m, p, r = [0, 0, 0], s = [1, 1, 1]) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(...p); mesh.rotation.set(...r); mesh.scale.set(...s); parent.add(mesh); return mesh; };
   const dark = M('#2b1d1a'); const legs = [], ears = [];
@@ -89,5 +108,7 @@ export function buildCharacter(id, matFactory) {
       add(g, new THREE.CylinderGeometry(0.02, 0.02, 0.22, 5), M('#8b6a48'), [0.2, 0.5, 0.2], [0, 0, 0.9]); add(g, new THREE.CylinderGeometry(0.05, 0.05, 0.09, 8), M('#c9a57a'), [0.29, 0.56, 0.2], [0, 0, 0.9]);   // mochi mallet
       quadLegs(white, pink, 0.3, 0.3); }
   }
-  return { group: g, body, head, tail, legs, ears, mats };
+  const rig = { group: g, body, head, tail, legs, ears, mats };
+  addScarf(rig, ch.color, M);      // M already collects into `mats`
+  return rig;
 }

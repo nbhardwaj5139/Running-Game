@@ -42,6 +42,7 @@ export class NetClient {
     s.on(MSG.DEATH, (m) => { const g = this.ghosts.get(m.id); if (g) g.alive = false; this.on.death?.(m); });
     s.on(MSG.RESULT, (m) => this.on.result?.(m));
     s.on(MSG.STANDINGS, (m) => { this.state = 'lobby'; this.on.standings?.(m); });
+    // `leave` carries the seat that emptied, so co-op can stop waiting on that slot
     s.on('leave', (m) => { this.ghosts.delete(m.id); this.on.leave?.(m); });
     s.on(MSG.PONG, (m) => { const now = performance.now(); this.rtt = now - m.t; this._syncClock(m.serverNow, now - this.rtt / 2); });
   }
@@ -52,8 +53,11 @@ export class NetClient {
 
   /** Change name or character: joining again with the same socket replaces the room's entry for us. */
   rejoin({ name = this.name, character = this.character } = {}) { this.name = cleanName(name); this.character = character; if (this.connected) this.socket.emit(MSG.JOIN, { room: this.room, name: this.name, character: this.character, coop: this.coop }); }
-  /** Co-op: the other laptop. */
+  /** Co-op: the other laptops. */
   get peer() { return this.players.find(p => p.id !== this.id) || null; }
+  get peers() { return this.players.filter(p => p.id !== this.id); }
+  /** Who is sitting in a co-op seat. */
+  playerBySlot(slot) { return this.players.find(p => p.slot === slot) || null; }
   ready(ready, difficulty, god) { this.socket?.emit(MSG.READY, { ready, difficulty, god }); }
   /** Co-op: send a lockstep batch (inputs + the tick we promise to have covered). */
   coopSend(batch) { this.socket?.emit(MSG.COOP, batch); }

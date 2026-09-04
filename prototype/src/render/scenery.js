@@ -333,8 +333,10 @@ export function buildScenery(parent, neonFactory) {
       const r = V.take(P.glowBox, compose(x - s * 0.25, 2.8, z, 0.22), S.sigPhase === 1 ? RED_ON : RED_OFF), g = V.take(P.glowBox, compose(x - s * 0.25, 2.42, z, 0.22), S.sigPhase === 1 ? GREEN_OFF : GREEN_ON);
       S.signals.push({ chunk: V.index, r, g });
     }
-    if (V.season === 2) for (let z = z0 + 3; z < z0 + len; z += 9) for (const s of [-1, 1]) { const g = kit.ginkgo(); tree(V, g.kind, s * 9.0, z + rng(), 4.5 + rng(), rng() * TAU, g.tint); }   // ginkgo avenue
-    if (V.season === 0) for (let i = 0; i < 2; i++) { const st = kit.tree(); tree(V, st.kind, (i ? 1 : -1) * 9.0, z0 + 6 + i * 18 + rng() * 6, 4 + rng(), rng() * TAU, st.tint); }
+    // The avenue is set back from the kerb and thinned out: packed against the road it
+    // walls the frame in and you cannot see the city behind it.
+    if (V.season === 2) for (let z = z0 + 4; z < z0 + len; z += 15) for (const s of [-1, 1]) { const g = kit.ginkgo(); tree(V, g.kind, s * (11.8 + rng()), z + rng() * 3, 4.2 + rng(), rng() * TAU, g.tint); }   // ginkgo avenue
+    if (V.season === 0) for (let i = 0; i < 2; i++) { const st = kit.tree(); tree(V, st.kind, (i ? 1 : -1) * (11.5 + rng()), z0 + 6 + i * 18 + rng() * 6, 4 + rng(), rng() * TAU, st.tint); }
     if (kit.festival) {                                                                                 // summer: awnings + a festival lantern row
       const tints = [[0.85, 0.2, 0.2], [0.2, 0.55, 0.3], [0.2, 0.35, 0.8]];
       for (const f of faces) if (f.s < 0 && rng() < 0.6) V.take(P.awning, compose(f.x + 0.1, 3.3, f.z, 1, 1, 1, Math.PI / 2), V.tint(tints));

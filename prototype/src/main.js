@@ -3,11 +3,11 @@ import { World, W } from './core/world.js';
 import { normalizeSeed } from './core/rng.js';
 import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY, POWER_INFO } from './core/chunks.js';
 import { Renderer, nightAt } from './render/renderer.js';
-import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
+import { SEASON_LABEL, roadLabel } from './render/theme.js';
 import { CHARACTERS, characterById, buildCharacter } from './render/characters.js';
 import { GameAudio } from './audio/audio.js';
 import { NetClient } from './net/client.js';
-import { cleanRoom } from './core/protocol.js';
+import { cleanRoom, COOP_SLOTS, COOP_MIN } from './core/protocol.js';
 import { Lockstep } from './core/lockstep.js';
 import * as THREE from 'three';
 
@@ -20,18 +20,56 @@ const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-m
 
 const $ = (id) => document.getElementById(id);
 const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('storm'), msg: $('msg'), body: $('msgBody'), foot: $('msgFoot'), modes: $('modes'), flash: $('flash'), vig: $('vignette'), hint: $('hint'),
-  quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')], rival: $('rival') };
+  quit: $('quit'), pause: $('pause'), hit: $('hit'), fire: $('fire'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [], rival: $('rival') };
+
+const CHIPS = [['shield', '御守 shield'], ['magnet', '磁 magnet'], ['dash', '★ star run'], ['jetpack', '翼 jetpack'], ['foxfire', '狐火 fox-fire'], ['guide', '烏 guided'], ['rocket', '棒火矢 rocket loaded']];
+/**
+ * Rebuild the scoreboard: one card per runner on the road, in that character's colour,
+ * each carrying its own coin and score tally. Called whenever the seating changes.
+ */
+function buildRunnerCards() {
+  const box = $('runners'); box.innerHTML = ''; hud.runners = [];
+  world.runners.forEach((r, i) => {
+    const ch = characterById(seatChars[i] ?? seatChars[i % Math.max(1, seatChars.length)]);
+    const el = document.createElement('div');
+    el.className = 'runner' + (isMine(i) ? ' me' : '');
+    el.style.setProperty('--rc', ch.color);
+    el.innerHTML = `<div class="name">${ch.jp} ${ch.en.toUpperCase()} <span></span></div>`
+      + `<div class="tally"><b>◎ <span class="coins">0</span></b><i class="pts"><span class="score">0</span> pts</i></div>`
+      + `<div class="chips">${CHIPS.map(([k, label]) => `<i class="chip ${k}">${label}</i>`).join('')}</div>`;
+    box.appendChild(el);
+    hud.runners.push({ el, who: el.querySelector('.name span'), coins: el.querySelector('.coins'), score: el.querySelector('.score'), chips: Object.fromEntries(CHIPS.map(([k]) => [k, el.querySelector('.chip.' + k)])) });
+  });
+  labelRunners();
+}
+/** Is runner `i` the one this keyboard drives? */
+function isMine(i) { return mode === 4 ? i === mySlot : mode === 2 ? true : i === 1; }
+/** Put a name under each card: who is you, who is a friend, who is the spirit companion. */
+function labelRunners() {
+  world.runners.forEach((r, i) => {
+    const card = hud.runners[i]; if (!card) return;
+    card.el.classList.toggle('me', isMine(i));
+    card.el.classList.toggle('out', mode === 4 && left.has(i));
+    card.el.style.display = r.disabled ? 'none' : '';
+    card.who.textContent = mode === 4 ? (i === mySlot ? 'you' : left.has(i) ? 'left the road' : (net?.playerBySlot(i)?.name || 'runner ' + (i + 1)))
+      : mode === 2 ? (i === 1 ? 'player 1 · arrows' : 'player 2 · WASD')
+      : i === 1 ? 'you' : 'spirit companion';
+  });
+}
 
 // modes: 1 = solo, 2 = two players on one keyboard, 3 = online race (solo sim, rivals as ghosts),
 //        4 = online co-op (ONE shared world across two laptops, kept in step by core/lockstep.js)
 let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
 let net = null, countdown = 0, lastCount = -1, myReady = false;
-let lock = null, mySlot = 1, lastSend = 0, waitT = 0;   // co-op: the lockstep scheduler and this laptop's runner
+let lock = null, mySlot = 1, coopSeats = 2, lastSend = 0, waitT = 0;   // co-op: the lockstep scheduler, this laptop's runner, and how many share the road
+const left = new Set();                                                // co-op slots whose machine has gone (display only — never the sim)
 // ---- sound: synthesised in the browser, unlocked by the first key or tap (browser rule), M mutes
 const audio = new GameAudio(seed);
 const muteBtn = $('mute');
 function drawMute() { muteBtn.textContent = audio.muted ? '♪ off · M' : '♪ on · M'; muteBtn.classList.toggle('off', audio.muted); }
 muteBtn.addEventListener('click', () => { audio.unlock(); audio.toggleMuted(); drawMute(); });
+const volBox = $('vol'); volBox.value = String(Math.round(audio.volume * 100));
+volBox.addEventListener('input', () => { audio.unlock(); audio.setVolume(Number(volBox.value) / 100); if (audio.muted && Number(volBox.value) > 0) { audio.setMuted(false); drawMute(); } });   // nudging the slider un-mutes: that is what you meant
 drawMute();
 let acc = 0, last = performance.now(), toastT = 0, powerT = 0, pickupT = 0;
 try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
@@ -43,10 +81,14 @@ godBox.addEventListener('change', () => { god = godBox.checked; try { localStora
 document.getElementById('godChip').style.display = god ? '' : 'none';
 if (!DIFFICULTY[difficulty]) difficulty = 'normal';
 // ---- characters: chars[0] runs the left track (companion / player 2), chars[1] the right (you / player 1)
+// `chars` is what the two start-screen pickers hold (chars[1] = you, chars[0] = local player 2).
+// `seatChars` is who actually stands in each seat of the current road — the same thing in
+// solo and 2P, but in co-op it is the seating the server handed out, one entry per runner.
 let chars = ['tanuki', 'kitsune'];
 try { const c = JSON.parse(localStorage.getItem('kitsune.chars') || 'null'); if (Array.isArray(c) && c.length === 2) chars = c; } catch {}
 if (q.get('p1')) chars[1] = q.get('p1'); if (q.get('p2')) chars[0] = q.get('p2');
 chars = chars.map(id => characterById(id).id);
+let seatChars = chars.slice();
 // ---- start-screen previews: a tiny scene per slot with the chosen rig turning slowly
 const previews = [0, 1].map(slot => {
   const canvas = document.getElementById('prev' + slot);
@@ -75,13 +117,12 @@ function renderCharacterPickers() {
       b.innerHTML = `<b>${c.jp}</b><span>${c.en}</span>`; row.appendChild(b);
     }
   }
-  hud.who[0].parentElement.firstChild.textContent = `${characterById(chars[0]).jp} ${characterById(chars[0]).en.toUpperCase()} `;
-  hud.who[1].parentElement.firstChild.textContent = `${characterById(chars[1]).jp} ${characterById(chars[1]).en.toUpperCase()} `;
 }
 for (const slot of [0, 1]) document.getElementById('chars' + slot).addEventListener('click', (e) => {
   const b = e.target.closest('.cbtn'); if (!b) return;
   chars[slot] = b.dataset.id; try { localStorage.setItem('kitsune.chars', JSON.stringify(chars)); } catch {}
-  renderCharacterPickers(); renderer?.setCharacters(chars); if (slot === 1) net?.rejoin({ character: chars[1] });
+  if (mode === 4) seatChars[mySlot] = chars[1]; else seatChars = chars.slice();
+  renderCharacterPickers(); renderer?.setCharacters(seatChars); buildRunnerCards(); if (slot === 1) net?.rejoin({ character: chars[1] });
 });
 function setDifficulty(d) {
   difficulty = d; try { localStorage.setItem('kitsune.diff', d); } catch {}
@@ -93,6 +134,8 @@ setDifficulty(difficulty);
 function newWorld() {
   world = new World(seed, {
     reducedMotion, difficulty, solo: mode !== 2 && mode !== 4, autopilot: [],
+    runners: mode === 4 ? Math.max(2, coopSeats) : 2,      // co-op seats however many joined
+    forks: mode !== 2,                                      // two on one screen: the road never pulls apart, or one of them leaves the frame
     invincible: mode === 4 ? !!net?.god : (god && mode !== 3),
     onEvent: (e) => {
       renderer?.onEvent(e); audio.onEvent(e);
@@ -108,7 +151,7 @@ function newWorld() {
         hud.pickup.style.setProperty('--pc', `rgb(${c[0] + 60},${c[1] + 60},${c[2] + 60})`);
         hud.pickup.querySelector('.glyph').textContent = info.jp; hud.pickup.querySelector('.name').textContent = info.en; hud.pickup.querySelector('.what').textContent = info.blurb;
         hud.pickup.querySelector('.who').textContent = mode === 1 ? 'YOU'
-          : mode === 4 ? (e.runner === mySlot ? 'YOU' : (net?.peer?.name || 'YOUR FRIEND').toUpperCase())
+          : mode === 4 ? (e.runner === mySlot ? 'YOU' : (net?.playerBySlot(e.runner)?.name || 'RUNNER ' + (e.runner + 1)).toUpperCase())
           : (e.runner === 1 ? 'PLAYER 1 · RIGHT ROAD' : 'PLAYER 2 · LEFT ROAD');
         hud.pickup.classList.remove('on'); void hud.pickup.offsetWidth; hud.pickup.classList.add('on'); pickupT = 2.6;
       }
@@ -116,26 +159,45 @@ function newWorld() {
       if (e.type === 'weather' && running) { hud.power.textContent = `${e.weather.jp} ${e.weather.en.toUpperCase()}`; hud.power.classList.add('on'); powerT = 2; }
       if (e.type === 'setpiece' && e.kind) { hud.toastJp.textContent = e.spec.jp; hud.toastEn.textContent = e.spec.en; hud.toast.classList.add('on'); toastT = 2.6; hud.power.textContent = '⚠ ' + e.spec.en.toUpperCase(); hud.power.classList.add('on'); powerT = 2.5; }
       if (e.type === 'gust.telegraph') { hud.power.textContent = `${e.dir > 0 ? '→' : '←'} 突風 GUST ${e.dir > 0 ? '→' : '←'}`; hud.power.classList.add('on'); powerT = 0.9; }
+      if (e.type === 'fork' && running) {
+        if (e.at === 'ahead') { hud.toastJp.textContent = '分岐'; hud.toastEn.textContent = `The road splits ${e.groups} ways — pick a side`; hud.toast.classList.add('on'); toastT = 2.6; hud.power.textContent = '⑂ ROAD SPLITS AHEAD · PICK A SIDE'; hud.power.classList.add('on'); powerT = 2.6; }
+        if (e.at === 'split') { hud.power.textContent = '⑂ NO WAY ACROSS UNTIL THE ROADS MEET'; hud.power.classList.add('on'); powerT = 2; }
+        if (e.at === 'join') { hud.power.textContent = '合流 THE ROADS ARE ONE AGAIN'; hud.power.classList.add('on'); powerT = 1.6; }
+      }
       if (e.type === 'kaiju' && e.kaiju) { hud.toastJp.textContent = e.kaiju.jp; hud.toastEn.textContent = `KAIJU — ${e.kaiju.en}`; hud.toast.classList.add('on'); toastT = 3; hud.power.textContent = '⚠ ' + e.kaiju.en.split(',')[0].toUpperCase() + ' IS THROWING'; hud.power.classList.add('on'); powerT = 2.5; }
       if (e.type === 'death') onDeath(e);
     },
   });
   if (renderer) renderer.reset(world);
   audio.setSeed(seed);
+  buildRunnerCards();
   showSection(seasonOf(0), biomeOf(0), false, provinceOf(0));
 }
 
 function showSection(season, biome, toast, province) {
-  const s = SEASON_LABEL[season], b = BIOME_LABEL[biome]; const pv = province || provinceOf(world.chunkIndex);
+  const pv = province || provinceOf(world.chunkIndex);
+  const s = SEASON_LABEL[season], b = roadLabel(pv, biome);
   hud.secJp.textContent = `${s.jp}　${pv.jp}`; hud.secEn.textContent = `${s.en} · ${pv.en} · ${b.en}`;
   if (toast) { hud.toastJp.textContent = `${pv.jp}`; hud.toastEn.textContent = `${pv.en} — ${s.en} · ${b.en}`; hud.toast.classList.add('on'); toastT = 2.8; }
 }
 
+/** Who reports the shared run to the server: the lowest slot still present, so exactly one machine does. */
+function lowestSlot() { return Math.min(...world.runners.map(r => r.id).filter(i => !left.has(i))); }
+/** The run's own scoreboard: every runner, best first, with the coins they each took. */
+function scoreboardHTML() {
+  const live = world.runners.filter(r => !r.disabled);
+  if (live.length < 2) return '';
+  const rows = live.map(r => ({ r, ch: characterById(seatChars[r.id] ?? seatChars[0]) }))   // r.id indexes the seating, not the filtered list
+    .sort((a, b) => b.r.score - a.r.score)
+    .map(({ r, ch }) => `<tr><td style="color:${ch.color}">${ch.jp} ${ch.en}</td><td><b>${r.coins}</b> coins</td><td>${Math.floor(r.score)} pts</td></tr>`).join('');
+  return `<table class="standings">${rows}</table>`;
+}
+
 function onDeath(e) {
   running = false;
-  const why = e.reason === 'fall' ? '落ちた — The road gave way and the typhoon closed in.' : '台風 — The typhoon took the pair.';
-  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers · ${DIFFICULTY[difficulty].en}`;
-  if (mode === 4) { lock = null; if (mySlot === 1) net.runEnd(world.log, world.summary); hud.foot.textContent = 'the road took you both · hit RACE when you are ready to run it again'; myReady = false; drawRoom(); }
+  const why = e.reason === 'fall' ? '落ちた — The road gave way and the typhoon closed in.' : '台風 — The typhoon took the road.';
+  hud.body.innerHTML = `${why}<br><b>${Math.floor(e.distance)} m</b> · score <b>${e.score}</b> · ${world.coins} coins · ${world.powers} powers · ${DIFFICULTY[difficulty].en}${scoreboardHTML()}`;
+  if (mode === 4) { lock = null; if (mySlot === lowestSlot()) net.runEnd(world.log, world.summary); hud.foot.textContent = 'the road took all of you · hit RACE when you are ready to run it again'; myReady = false; drawRoom(); }
   else if (net) { net.death(world.distance); net.runEnd(world.log, world.summary); hud.foot.textContent = 'run sent for validation · waiting for the others to finish…'; }
   else { hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode, or press R / tap to run again in the same mode'; }
   hud.msg.classList.remove('hidden');
@@ -151,8 +213,8 @@ document.getElementById('endrun').addEventListener('click', () => { resume(); ab
 function abort() {
   if (!running) return;
   running = false; world.alive = false; countdown = 0;
-  hud.body.innerHTML = `Run ended.<br><b>${Math.floor(world.distance)} m</b> · score <b>${Math.floor(world.score)}</b> · ${world.coins} coins · ${DIFFICULTY[difficulty].en}`;
-  if (mode === 4) { lock = null; if (mySlot === 1) net.runEnd(world.log, world.summary); hud.foot.textContent = 'run ended for both of you · hit RACE to run again'; myReady = false; drawRoom(); }
+  hud.body.innerHTML = `Run ended.<br><b>${Math.floor(world.distance)} m</b> · score <b>${Math.floor(world.score)}</b> · ${world.coins} coins · ${DIFFICULTY[difficulty].en}${scoreboardHTML()}`;
+  if (mode === 4) { lock = null; if (mySlot === lowestSlot()) net.runEnd(world.log, world.summary); hud.foot.textContent = 'run ended for everyone · hit RACE to run again'; myReady = false; drawRoom(); }
   else if (net) { net.death(world.distance); net.runEnd(world.log, world.summary); hud.foot.textContent = 'run sent · waiting for the others to finish…'; }
   else { hud.modes.style.display = 'flex'; hud.foot.textContent = 'pick a mode to run again · Esc ends a run at any time'; }
   hud.msg.classList.remove('hidden'); hud.quit.style.display = 'none';
@@ -163,9 +225,9 @@ function start(m) {
   if (net) return;                            // online: the server starts the race for everyone at once (see startRace)
   if (m) { mode = m; try { localStorage.setItem('kitsune.mode', String(m)); } catch {} }
   if (!mode) return;                          // the start screen waits for a mode
-  if (!world || !world.alive || !!world.opts.solo !== (mode !== 2) || world.cfg.id !== difficulty) newWorld();
-  hud.who[0].textContent = 'player 2 · WASD'; hud.runners[0].style.display = mode === 2 ? '' : 'none';
-  hud.who[1].textContent = mode === 2 ? 'player 1 · arrows' : 'you';
+  seatChars = chars.slice(); coopSeats = 2;
+  if (!world || !world.alive || !!world.opts.solo !== (mode !== 2) || world.cfg.id !== difficulty || world.runners.length !== 2) newWorld();
+  renderer?.setCharacters(seatChars); buildRunnerCards(); if (renderer) renderer.focus = 1;
   running = true; hud.msg.classList.add('hidden'); hud.quit.style.display = 'block'; last = performance.now(); acc = 0;
   audio.unlock(); audio.begin();
 }
@@ -175,38 +237,37 @@ hud.modes.addEventListener('click', (e) => { const b = e.target.closest('.mode')
 function startRace(m) {
   mode = m.coop ? 4 : 3; setDifficulty(m.difficulty);
   if (mode === 4) {
-    mySlot = m.slot ?? net.slot ?? 1;
-    const peer = m.players.find(p => p.id !== net.id);
-    chars[mySlot] = characterById(chars[1]).id;                       // whatever you picked is your runner
-    if (peer) chars[1 - mySlot] = characterById(peer.character).id;   // your friend brings their own
-    renderer?.setCharacters(chars); renderCharacterPickers();
-    godBox.checked = !!m.god;                                          // the room's god setting, so both sims match
-  }
+    // The server fixes the seating at START and sends it to everyone: how many runners
+    // there are, which slot each machine drives, and what character sits in each seat.
+    // Every machine must build the identical World from this, or the sims diverge.
+    mySlot = m.slot ?? net.slot ?? 0;
+    coopSeats = Math.max(2, m.seats ?? m.players.length);
+    seatChars = Array.from({ length: coopSeats }, (_, i) => characterById(m.players.find(p => p.slot === i)?.character).id);
+    seatChars[mySlot] = characterById(chars[1]).id;               // whatever you picked is your runner
+    godBox.checked = !!m.god;                                     // the room's god setting, so every sim matches
+  } else seatChars = chars.slice();
   newWorld(); paused = false; running = false; myReady = false; drawReady();
-  if (mode === 4) { lock = new Lockstep(world, mySlot); waitT = 0; lastSend = 0; }
+  if (mode === 4) { lock = new Lockstep(world, mySlot, undefined, [...Array(coopSeats).keys()]); waitT = 0; lastSend = 0; }
+  renderer?.setCharacters(seatChars); renderCharacterPickers(); labelRunners();
+  if (renderer) renderer.focus = mode === 4 ? mySlot : 1;                 // through a fork the camera stays on your own road
   hud.pause.classList.add('hidden'); hud.msg.classList.add('hidden'); hud.quit.style.display = 'block';
-  if (mode === 4) {
-    const peer = net.peer;
-    hud.runners[0].style.display = ''; hud.runners[1].style.display = '';
-    hud.who[mySlot].textContent = 'you'; hud.who[1 - mySlot].textContent = peer ? peer.name : 'your friend';
-  } else { hud.who[1].textContent = 'you'; hud.runners[0].style.display = 'none'; }
   countdown = Math.max(0.05, m.inMs / 1000); lastCount = -1; audio.unlock();
 }
 function drawReady() {
   const b = $('ready'); if (!b) return; b.classList.toggle('on', myReady);
-  const solo = coopName && (net?.players.length ?? 0) < 2;
-  b.querySelector('b').textContent = myReady ? (solo ? '⏳ WAITING' : '✓ READY') : (net?.state === 'lobby' ? (coopName ? '▶ RUN TOGETHER' : '▶ RACE') : '⏳ RUN IN PROGRESS');
+  const alone = coopName && (net?.players.length ?? 0) < COOP_MIN;
+  b.querySelector('b').textContent = myReady ? (alone ? '⏳ WAITING' : '✓ READY') : (net?.state === 'lobby' ? (coopName ? '▶ RUN TOGETHER' : '▶ RACE') : '⏳ RUN IN PROGRESS');
   b.querySelector('small').textContent = myReady
-    ? (solo ? 'send your friend the link — the road starts when you are both ready' : 'waiting for the other runner · click again to un-ready')
-    : net?.state === 'lobby' ? (coopName ? 'you both run one road, one typhoon · starts when you are both ready' : 'everyone in the room runs the same road · starts when all are ready')
+    ? (alone ? 'send your friends the link — the road starts when everyone is ready' : 'waiting for the others · click again to un-ready')
+    : net?.state === 'lobby' ? (coopName ? `up to ${COOP_SLOTS} runners on one road, one typhoon · starts when everyone is ready` : 'everyone in the room runs the same road · starts when all are ready')
     : 'you can join the next one';
 }
 function drawRoom() {
   if (!net) return;
   const list = $('roomPlayers'); list.innerHTML = '';
   for (const p of net.players) { const s = document.createElement('span'); s.textContent = `${characterById(p.character).jp} ${p.name}${p.ready ? ' ✓' : ''}`; s.className = (p.ready ? 'ready' : '') + (p.id === net.id ? ' me' : ''); list.appendChild(s); }
-  $('roomStatus').textContent = !net.connected ? 'offline — run `npm run dev` and open this link on both laptops'
-    : coopName ? `${net.players.length}/2 runners · you are ${net.slot === 1 ? 'player 1 · right road' : 'player 2 · left road'} · ${DIFFICULTY[net.difficulty]?.en || 'Normal'}${net.players.length < 2 ? ' · waiting for your friend to open the link' : ''}`
+  $('roomStatus').textContent = !net.connected ? 'offline — run `npm run dev` and open this link on every laptop'
+    : coopName ? `${net.players.length}/${COOP_SLOTS} runners · you are runner ${(net.slot ?? 0) + 1} · ${DIFFICULTY[net.difficulty]?.en || 'Normal'}${net.players.length < COOP_MIN ? ' · waiting for someone else to open the link' : ''}`
     : `${net.players.length} on the road · ${DIFFICULTY[net.difficulty]?.en || 'Normal'} · ${net.state === 'lobby' ? 'waiting for everyone to hit RACE' : 'race in progress'}`;
   drawReady();
 }
@@ -214,19 +275,31 @@ function setupRoom() {
   let myName = q.get('name') || ''; try { myName ||= localStorage.getItem('kitsune.name') || ''; } catch {}
   if (!myName) myName = `${characterById(chars[1]).en}-${10 + Math.floor(Math.random() * 90)}`;
   $('room').style.display = ''; $('roomName').textContent = `${coopName ? 'CO-OP' : 'ROOM'} ${roomName}`; $('pname').value = myName; hud.modes.style.display = 'none';
-  document.querySelector('#msg h1 small').textContent = coopName ? '狐 · two laptops, one road' : '狐 · online race';
+  document.querySelector('#msg h1 small').textContent = coopName ? '狐 · one road, everyone on it' : '狐 · online race';
   hud.body.innerHTML = coopName
-    ? `Your friend opens this same link and becomes <b>the second runner on your road</b> — one road, one typhoon, and you can barge each other. Hit <b>RUN TOGETHER</b>; the road starts when you both have.<br>Only your keypresses cross the network, so both laptops run the very same world.`
+    ? `Everyone who opens this link becomes <b>another runner on your road</b> — up to ${COOP_SLOTS} of you, one road, one typhoon, and you can all barge each other. Hit <b>RUN TOGETHER</b>; the road starts when everyone has.<br>Only your keypresses cross the network, so every laptop runs the very same world.`
     : `Everyone who opens this link runs the same road. Hit <b>RACE</b> when you are ready; the run starts for all of you on the same count.<br>Rivals run beside you as ghosts. Every run is checked by replaying it on the server.`;
   const results = new Map();
   net = new NetClient({ room: roomName, name: myName, character: chars[1], coop: !!coopName, on: {
     status: drawRoom,
     welcome: drawRoom,
-    full: () => { hud.body.innerHTML = `<b>This road is full.</b><br>A co-op road seats two runners. Ask them to finish, or use a different name in the link: <code>?coop=another-name</code>.`; $('room').style.display = 'none'; },
+    full: () => { hud.body.innerHTML = `<b>This road is full.</b><br>A co-op road seats ${COOP_SLOTS} runners. Ask them to finish, or use a different name in the link: <code>?coop=another-name</code>.`; $('room').style.display = 'none'; },
     coop: (b) => lock?.remote(b),
-    leave: () => { if (mode === 4 && running) { hud.power.textContent = 'YOUR FRIEND LEFT THE ROAD'; hud.power.classList.add('on'); powerT = 3; abort(); } drawRoom(); },
+    // Someone closed their tab. Everyone else must stop *waiting* on that slot or the whole
+    // road freezes. Note what this deliberately does NOT do: it never touches the sim.
+    // Removing a runner would land on a different tick on each machine and split the
+    // worlds; instead their body simply runs on, receiving no further input — which is
+    // identical everywhere. Only the scoreboard is told they are gone.
+    leave: (m) => {
+      if (mode === 4 && m?.slot !== undefined && m.slot !== null) {
+        lock?.drop(m.slot);
+        left.add(m.slot); labelRunners();
+        if (running) { hud.power.textContent = `${(m.name || 'A RUNNER').toUpperCase()} LEFT THE ROAD`; hud.power.classList.add('on'); powerT = 3; }
+      }
+      drawRoom();
+    },
     players: () => { const me = net.me; if (me && myReady !== !!me.ready) { myReady = !!me.ready; } drawRoom(); },
-    start: (m) => { results.clear(); startRace(m); },
+    start: (m) => { results.clear(); left.clear(); startRace(m); },
     result: (r) => { results.set(r.id, r); if (r.id !== net.id) { hud.power.textContent = `${r.name.toUpperCase()} — ${r.distance} m${r.valid ? '' : ' · INVALID'}`; hud.power.classList.add('on'); powerT = 2.5; } },
     standings: (m) => {
       const rows = m.standings.map((r, i) => `<tr class="${r.id === net.id ? 'me' : ''}"><td>${i + 1}</td><td>${characterById(r.character).jp} ${r.name}</td><td><b>${r.distance} m</b></td><td>${r.score} pts</td><td class="${r.valid ? '' : 'bad'}">${r.valid ? '✓ replay matched' : '✗ ' + r.reason}</td></tr>`).join('');
@@ -245,9 +318,10 @@ function toggleReady() {
 
 // ---- input --------------------------------------------------------------
 // 1P: arrows and WASD both drive the fox (track 1). 2P: WASD = tanuki (track 0), arrows/space = fox (track 1).
+// Space fires a loaded rocket and is a jump otherwise (the sim decides); F is player 2's trigger.
 const KEYS = {
-  ArrowLeft: [1, 'lane', -1], ArrowRight: [1, 'lane', 1], ArrowUp: [1, 'jump'], Space: [1, 'jump'], ArrowDown: [1, 'slide'],
-  KeyA: [0, 'lane', -1], KeyD: [0, 'lane', 1], KeyW: [0, 'jump'], KeyS: [0, 'slide'],
+  ArrowLeft: [1, 'lane', -1], ArrowRight: [1, 'lane', 1], ArrowUp: [1, 'jump'], Space: [1, 'fire'], ArrowDown: [1, 'slide'],
+  KeyA: [0, 'lane', -1], KeyD: [0, 'lane', 1], KeyW: [0, 'jump'], KeyS: [0, 'slide'], KeyF: [0, 'fire'],
 };
 /** The one door every input goes through. In co-op it is scheduled by the lockstep instead of applied now. */
 function input(slot, evt) {
@@ -258,7 +332,8 @@ function press(track, kind, dir) {
   if (!running) { start(); return; }
   const t = mode === 4 ? mySlot : mode === 2 ? track : 1;
   input(t, dir === undefined ? { kind } : { kind, dir });
-  if (kind !== 'lane' || world.runners[t].laneT >= 1) audio.action(kind);
+  if (kind === 'fire') kind = world.runners[t]?.rocket ? 'fire' : 'jump';   // for the sound only: the sim makes the same call
+  if (kind !== 'lane' || (world.runners[t]?.laneT ?? 1) >= 1) audio.action(kind);
 }
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -277,7 +352,9 @@ addEventListener('keyup', (e) => {
   if (e.code === 'KeyW') input(mode === 4 ? mySlot : mode === 2 ? 0 : 1, { kind: 'jumpRelease' });
 });
 let touch = null;
-addEventListener('pointerdown', (e) => { audio.unlock(); if (e.target.closest('.mode, #quit, #mute, .dbtn, .cbtn, #room')) return; touch = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerdown', (e) => { audio.unlock(); if (e.target.closest('.mode, #quit, #mute, #vol, #fire, .dbtn, .cbtn, #room')) return; touch = { x: e.clientX, y: e.clientY }; });
+// touch: a FIRE button appears while your runner has a rocket loaded
+$('fire').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (running) press(1, 'fire'); });
 addEventListener('pointerup', (e) => {
   if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; const track = mode === 2 && touch.x < innerWidth / 2 ? 0 : 1; touch = null;
   if (!running) { if (mode && !net) start(); return; }
@@ -303,7 +380,7 @@ function tick(now) {
     while (owed > 0 && lock.ready) { lock.step(); acc -= W.TICK; owed--; }
     if (owed > 0) { acc = W.TICK; waitT += dt; } else waitT = 0;          // hold at one tick of credit; never bank a backlog
     if (lock.outbox.length || now - lastSend > 33) { lastSend = now; net.coopSend(lock.drain()); }
-    if (waitT > 0.3) { hud.power.textContent = `WAITING FOR ${(net.peer?.name || 'YOUR FRIEND').toUpperCase()}…`; hud.power.classList.add('on'); powerT = 0.25; }
+    if (waitT > 0.3) { const slow = net.peers.filter(p => !left.has(p.slot)); hud.power.textContent = `WAITING FOR ${(slow.length === 1 ? slow[0].name : 'THE OTHERS').toUpperCase()}…`; hud.power.classList.add('on'); powerT = 0.25; }
   } else if (running) { acc += dt; while (acc >= W.TICK) { world.step(); acc -= W.TICK; } }
   renderer.render(dt);
   if (!running && !paused) drawPreviews(dt);
@@ -322,7 +399,8 @@ function tick(now) {
   }
   {
     const idx = world.chunkIndex, live = world.runners.filter(r => !r.disabled);
-    audio.update(dt, { themeId: provinceOf(idx).id, season: seasonOf(idx), biome: biomeOf(idx), speed: world.speed, night: nightAt(world.distance), dread: 1 - Math.max(0, world.storm) / W.STORM_MAX,
+    audio.update(dt, { themeId: provinceOf(idx).id, season: seasonOf(idx), biome: biomeOf(idx), speed: world.speed,
+      speedBase: world.cfg.speedBase, speedMax: world.cfg.speedMax, night: nightAt(world.distance), dread: 1 - Math.max(0, world.storm) / W.STORM_MAX,
       weather: world.weather, kaiju: !!world.kaiju, setpiece: world.setpiece, running: running && !paused, alive: world.alive, jetpack: live.some(r => r.jetpackT > 0), dash: live.some(r => r.dashT > 0), dawn: world.dawnT > 0, thunder: renderer.thunderT || 0 });
   }
 
@@ -331,18 +409,23 @@ function tick(now) {
   hud.coins.textContent = world.coins;
   hud.storm.querySelector('i').style.width = Math.max(0, 100 - (world.storm / W.STORM_MAX) * 100) + '%';
   const dread = 1 - Math.max(0, world.storm) / W.STORM_MAX;
-  hud.vig.style.boxShadow = `inset 0 0 ${40 + dread * 220}px ${dread * 60}px rgba(5,0,2,${0.15 + dread * 0.7})`;
+  hud.vig.style.boxShadow = `inset 0 0 ${30 + dread * 130}px ${dread * 30}px rgba(5,0,2,${0.08 + dread * 0.42})`;   // a hint of pressure, not a black frame
   hud.x2.classList.toggle('on', world.x2T > 0 || world.dawnT > 0);
   hud.x2.textContent = world.dawnT > 0 ? '天照 DAWN' : '×2 DARUMA';
-  for (const r of world.runners) {
-    const el = hud.runners[r.track];
-    el.querySelector('.shield').classList.toggle('on', r.shield);
-    el.querySelector('.magnet').classList.toggle('on', r.magnetT > 0);
-    el.querySelector('.dash').classList.toggle('on', r.dashT > 0);
-    el.querySelector('.jetpack').classList.toggle('on', r.jetpackT > 0);
-    el.querySelector('.foxfire').classList.toggle('on', r.foxfireT > 0);
-    el.querySelector('.guide').classList.toggle('on', r.guideT > 0);
-  }
+  { const mine = world.runners[mode === 4 ? mySlot : 1]; hud.fire.classList.toggle('on', !!(running && !paused && mine && mine.rocket)); }
+  // every runner's own scoreboard: their coins, their points, their powers
+  world.runners.forEach((r, i) => {
+    const card = hud.runners[i]; if (!card || r.disabled) return;
+    card.coins.textContent = r.coins;
+    card.score.textContent = Math.floor(r.score);
+    card.chips.shield.classList.toggle('on', r.shield);
+    card.chips.magnet.classList.toggle('on', r.magnetT > 0);
+    card.chips.dash.classList.toggle('on', r.dashT > 0);
+    card.chips.jetpack.classList.toggle('on', r.jetpackT > 0);
+    card.chips.foxfire.classList.toggle('on', r.foxfireT > 0);
+    card.chips.guide.classList.toggle('on', r.guideT > 0);
+    card.chips.rocket.classList.toggle('on', r.rocket);
+  });
   if (toastT > 0 && (toastT -= dt) <= 0) hud.toast.classList.remove('on');
   if (powerT > 0 && (powerT -= dt) <= 0) hud.power.classList.remove('on');
   if (pickupT > 0 && (pickupT -= dt) <= 0) hud.pickup.classList.remove('on');
@@ -350,7 +433,7 @@ function tick(now) {
 }
 
 newWorld();
-renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0', characters: chars });
+renderer = new Renderer(document.body, world, { reducedMotion, bloom: q.get('bloom') !== '0', characters: seatChars });
 renderCharacterPickers();
 hud.hint.textContent = coopName ? `co-op ${coopName} — one road, two runners · share this exact link`
   : roomName ? `room ${roomName} — the room name is the road`

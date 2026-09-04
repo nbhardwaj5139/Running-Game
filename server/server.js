@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
-import { MSG, COUNTDOWN_MS, MAX_LOG, COOP_SLOTS, cleanName, cleanRoom } from '../prototype/src/core/protocol.js';
+import { MSG, COUNTDOWN_MS, MAX_LOG, COOP_SLOTS, COOP_MIN, cleanName, cleanRoom } from '../prototype/src/core/protocol.js';
 import { normalizeSeed } from '../prototype/src/core/rng.js';
 import { replay } from '../prototype/src/core/world.js';
 import { DIFFICULTY } from '../prototype/src/core/chunks.js';
@@ -37,12 +37,13 @@ class Room {
     this.state = 'lobby';                       // lobby | countdown | running
     this.difficulty = 'normal';
     this.god = false;
+    this.seats = 2;                             // runners on the road, fixed at START
     this.startAt = 0;
     this.results = new Map();
   }
   list() { return [...this.players.values()].map(p => ({ id: p.id, name: p.name, character: p.character, slot: p.slot, ready: p.ready, alive: p.alive, z: p.z, score: p.score, done: p.done, inRace: p.inRace })); }
-  /** Co-op seats: slot 1 is the right road (the first to arrive), slot 0 the left. */
-  freeSlot() { const taken = new Set([...this.players.values()].map(p => p.slot)); return [1, 0].find(s => !taken.has(s)); }
+  /** Co-op seats are handed out lowest-free-first, so the seating is stable as people come and go. */
+  freeSlot() { const taken = new Set([...this.players.values()].map(p => p.slot)); for (let s = 0; s < COOP_SLOTS; s++) if (!taken.has(s)) return s; return null; }
   get full() { return this.coop && this.players.size >= COOP_SLOTS; }
   broadcast(ev, msg) { io.to(this.name).emit(ev, msg); }
   players_() { this.broadcast(MSG.PLAYERS, { players: this.list(), state: this.state }); }
@@ -50,12 +51,16 @@ class Room {
   maybeStart() {
     if (this.state !== 'lobby') return;
     const ps = [...this.players.values()]; if (!ps.length || !ps.every(p => p.ready)) return;
-    if (this.coop && ps.length < COOP_SLOTS) return;      // co-op needs both runners before the road can start
+    if (this.coop && ps.length < COOP_MIN) return;        // co-op needs at least two runners before the road can start
     this.state = 'countdown'; this.startAt = Date.now() + COUNTDOWN_MS; this.results.clear();
+    // Compact the seating to 0..n-1 so the sim's runner indices and the room's slots agree
+    // no matter who has come and gone; this is fixed for the whole run.
+    if (this.coop) ps.sort((a, b) => a.slot - b.slot).forEach((p, i) => { p.slot = i; });
     for (const p of ps) Object.assign(p, { alive: true, done: false, inRace: true, z: 0, score: 0 });
-    // Everything the shared sim depends on is fixed here and sent to both machines: the same
-    // seed, difficulty and god mode, or the two worlds would not be the same world.
-    for (const p of ps) io.to(p.id).emit(MSG.START, { at: this.startAt, inMs: COUNTDOWN_MS, seed: this.seed, difficulty: this.difficulty, god: this.god, coop: this.coop, slot: p.slot, players: this.list() });
+    // Everything the shared sim depends on is fixed here and sent to every machine: the same
+    // seed, difficulty, god mode AND seat count, or the worlds would not be the same world.
+    const seats = this.seats = this.coop ? ps.length : 2;   // remembered: the replay must rebuild the same road
+    for (const p of ps) io.to(p.id).emit(MSG.START, { at: this.startAt, inMs: COUNTDOWN_MS, seed: this.seed, difficulty: this.difficulty, god: this.god, coop: this.coop, slot: p.slot, seats, players: this.list() });
     setTimeout(() => { if (this.state === 'countdown') this.state = 'running'; }, COUNTDOWN_MS);
     console.log(`[${this.name}] ${this.coop ? 'co-op' : 'race'}: ${ps.map(p => p.name).join(this.coop ? ' + ' : ' vs ')} · ${this.difficulty}${this.god ? ' · god' : ''}`);
   }
@@ -80,9 +85,9 @@ io.on('connection', (socket) => {
     rn = cleanRoom(rn);
     room = rooms.get(rn) || rooms.set(rn, new Room(rn, coop)).get(rn);
     const rejoining = room.players.has(socket.id);
-    if (room.full && !rejoining) {                                  // a co-op road seats exactly two
+    if (room.full && !rejoining) {                                  // a co-op road seats COOP_SLOTS runners
       socket.emit(MSG.WELCOME, { id: socket.id, room: rn, seed: room.seed, state: room.state, difficulty: room.difficulty, players: room.list(), serverNow: Date.now(), full: true, coop: room.coop });
-      return console.log(`[${rn}] refused a third runner: the co-op road is full`);
+      return console.log(`[${rn}] refused a runner: the co-op road is full (${COOP_SLOTS})`);
     }
     const slot = rejoining ? room.players.get(socket.id).slot : room.freeSlot();
     me = { id: socket.id, name: cleanName(name) || `runner-${socket.id.slice(0, 4)}`, character: String(character || 'kitsune').slice(0, 16), slot, ready: false, alive: false, z: 0, score: 0, done: false, inRace: false };
@@ -90,7 +95,7 @@ io.on('connection', (socket) => {
     socket.join(rn);
     socket.emit(MSG.WELCOME, { id: socket.id, room: rn, seed: room.seed, state: room.state, difficulty: room.difficulty, players: room.list(), serverNow: Date.now(), coop: room.coop, slot });
     room.players_();
-    console.log(`[${rn}] ${me.name} (${me.character}) joined${room.coop ? ` as ${slot === 1 ? 'player 1 · right road' : 'player 2 · left road'}` : ''} (${room.players.size} on the road)`);
+    console.log(`[${rn}] ${me.name} (${me.character}) joined${room.coop ? ` in seat ${slot + 1}` : ''} (${room.players.size} on the road)`);
   });
 
   socket.on(MSG.PING, (m) => socket.emit(MSG.PONG, { t: m?.t, serverNow: Date.now() }));
@@ -132,14 +137,14 @@ io.on('connection', (socket) => {
     if (Array.isArray(log) && summary) {
       try {
         const maxTicks = Math.min(60 * 60 * 30, Number(summary.ticks) || 60 * 60 * 30);
-        const r = replay(room.seed, log.slice(0, MAX_LOG), maxTicks, room.difficulty, room.coop ? { invincible: room.god } : { solo: true });
+        const r = replay(room.seed, log.slice(0, MAX_LOG), maxTicks, room.difficulty, room.coop ? { invincible: room.god, runners: room.seats ?? 2 } : { solo: true });
         const valid = Math.abs(r.distance - Number(summary.distance)) <= Math.max(3, r.distance * 0.01) && Math.abs(r.score - Number(summary.score)) <= Math.max(20, r.score * 0.02);
         result = { id: me.id, name: me.name, character: me.character, distance: r.distance, score: r.score, coins: r.coins, valid, reason: valid ? 'replay matched' : `claimed ${summary.distance} m / ${summary.score} pts, the replay says ${r.distance} m / ${r.score} pts` };
       } catch (e) { result.reason = 'replay failed: ' + e.message; }
     }
-    if (room.coop) {   // one shared run: name it for the pair, and let either machine report it
+    if (room.coop) {   // one shared run: name it for everyone on it, and let any one machine report it
       result.name = [...room.players.values()].map(p => p.name).join(' + ');
-      if (room.results.size) return;                                  // the other machine already reported this run
+      if (room.results.size) return;                                  // another machine already reported this run
     }
     console.log(`[${room.name}] ${result.name} ran ${result.distance} m / ${result.score} pts → ${result.valid ? 'valid' : 'INVALID (' + result.reason + ')'}`);
     room.finish(me, result);
@@ -148,7 +153,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     if (!room || !me) return;
     room.players.delete(me.id);
-    room.broadcast('leave', { id: me.id });
+    // the seat matters: in co-op everyone else has to stop waiting on that slot's inputs
+    room.broadcast('leave', { id: me.id, slot: me.slot, name: me.name });
     room.players_(); room.settle();
     if (room.players.size === 0) rooms.delete(room.name);
   });

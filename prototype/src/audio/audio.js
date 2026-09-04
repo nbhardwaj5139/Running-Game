@@ -7,7 +7,7 @@
 //   sfx       one-shots for sim events: shamisen stings on pickups, thuds, whooshes,
 //             temple bell on a new province, gong on death
 // Browsers only start audio after a gesture: call unlock() from the first key/tap.
-import { barFor, STEPS, THEMES, midiToHz } from './score.js';
+import { barFor, layersFor, STEPS, THEMES, midiToHz } from './score.js';
 
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
 const BIOME_ID = ['mountain', 'city', 'suburb', 'coast'];
@@ -15,7 +15,7 @@ const BIOME_ID = ['mountain', 'city', 'suburb', 'coast'];
 export class GameAudio {
   constructor(seed) {
     this.seed = seed >>> 0; this.ctx = null; this.muted = false; this.volume = 1;
-    try { this.muted = localStorage.getItem('kitsune.mute') === '1'; } catch {}
+    try { this.muted = localStorage.getItem('kitsune.mute') === '1'; const v = parseFloat(localStorage.getItem('kitsune.volume')); if (v >= 0 && v <= 1) this.volume = v; } catch {}
     this.state = { themeId: 'kyoto', season: 0, biome: 0, speed: 14, night: 0, dread: 0, weather: null, drive: false, avalanche: false, running: false, alive: true, jetpack: false, dash: false, dawn: false, thunder: 0 };
     this.bar = 0; this.step = 0; this.nextStep = 0; this.pattern = null; this.lastThunder = -9; this.lastStrike = -9; this.played = 0; this.gongT = 0;
     this.padNote = null;
@@ -29,6 +29,8 @@ export class GameAudio {
   }
   setMuted(m) { this.muted = m; try { localStorage.setItem('kitsune.mute', m ? '1' : '0'); } catch {} if (this.master) this.master.gain.setTargetAtTime(m ? 0 : this.volume, this.ctx.currentTime, 0.05); }
   toggleMuted() { this.setMuted(!this.muted); return this.muted; }
+  /** 0..1, remembered; mute sits on top of it, so un-muting comes back at the level you set. */
+  setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); try { localStorage.setItem('kitsune.volume', String(this.volume)); } catch {} if (this.master && !this.muted) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05); }
   setSeed(seed) { this.seed = seed >>> 0; this.bar = 0; this.step = 0; }
 
   // ---------------------------------------------------------------- graph
@@ -38,7 +40,11 @@ export class GameAudio {
     const comp = C.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25; comp.connect(this.master);
     this.bus = comp;
     this.tone = C.createBiquadFilter(); this.tone.type = 'lowpass'; this.tone.frequency.value = 9000; this.tone.connect(comp);
-    this.music = this._gain(0.55, this.tone);
+    // The lo-fi chain the whole score runs through: roll the top off, take the deep
+    // bottom out (the way a sampled record sounds), and open it up as the run speeds up.
+    this.lofi = C.createBiquadFilter(); this.lofi.type = 'lowpass'; this.lofi.frequency.value = 1800; this.lofi.Q.value = 0.6; this.lofi.connect(this.tone);
+    const rumbleCut = C.createBiquadFilter(); rumbleCut.type = 'highpass'; rumbleCut.frequency.value = 45; rumbleCut.connect(this.lofi);
+    this.music = this._gain(0.55, rumbleCut);
     this.sfx = this._gain(0.9, comp);
     this.amb = this._gain(0.7, comp);
     // 2 s of white noise, looped by every noise-based voice
@@ -88,6 +94,21 @@ export class GameAudio {
       case 'bass:synth': { const { g, end } = this._env(t, 0.008, 0.45 * vel, 0.35, Math.max(0, dur - 0.2), dest); const lp = this._filter('lowpass', 420, 4, g); lp.frequency.exponentialRampToValueAtTime(140, t + 0.3);
         this._osc('sawtooth', f, t, end, lp); this._osc('square', f / 2, t, end, this._gain(0.3, lp)); break; }
       case 'bass:soft': { const { g, end } = this._env(t, 0.01, 0.4 * vel, 0.5, Math.max(0, dur - 0.3), dest); this._osc('sine', f, t, end, g); this._osc('triangle', f, t, end, this._gain(0.35, g)); break; }
+      // --- lo-fi voices: round, short-lived and deliberately dull at the top end ---
+      case 'bass:sub': { const { g, end } = this._env(t, 0.02, 0.5 * vel, 0.45, Math.max(0, dur - 0.25), dest);
+        const lp = this._filter('lowpass', 220, 0.8, g); const o = this._osc('sine', f, t, end, lp);
+        o.frequency.setValueAtTime(f * 1.02, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.06);   // a touch of pitch drop on the attack
+        this._osc('triangle', f, t, end, this._gain(0.18, lp)); break; }
+      case 'rhodes': {   // electric piano: a sine carrier with a fast-decaying overtone bell, soft and warm
+        const { g, end } = this._env(t, 0.012, 0.34 * vel, Math.min(1.6, 0.5 + dur), 0, dest);
+        const lp = this._filter('lowpass', 1500, 0.7, g); lp.frequency.exponentialRampToValueAtTime(520, t + 0.5);
+        this._osc('sine', f, t, end, lp); this._osc('triangle', f, t, end, this._gain(0.3, lp));
+        const bell = this._env(t, 0.004, 0.1 * vel, 0.16, 0, dest); this._osc('sine', f * 4.02, t, bell.end, bell.g);
+        g.connect(this.echo); break; }
+      case 'pluck': {    // muted short pluck for the busier city themes
+        const { g, end } = this._env(t, 0.004, 0.26 * vel, 0.22, 0, dest);
+        const lp = this._filter('lowpass', 1900, 1.4, g); lp.frequency.exponentialRampToValueAtTime(420, t + 0.2);
+        this._osc('triangle', f, t, end, lp); this._osc('sawtooth', f, t, end, this._gain(0.12, lp)); g.connect(this.echo); break; }
     }
   }
   _drum(kind, t, vel, dest = this.music) {
@@ -95,9 +116,11 @@ export class GameAudio {
     switch (kind) {
       case 'taiko': { const { g, end } = this._env(t, 0.002, 0.9 * v, 0.45, 0, dest); const o = this._osc('sine', 95, t, end, g); o.frequency.exponentialRampToValueAtTime(42, t + 0.22);
         const s = this._env(t, 0.001, 0.35 * v, 0.06, 0, dest); this._noise(t, s.end, this._filter('lowpass', 500, 0.7, s.g)); break; }
-      case 'kick': { const { g, end } = this._env(t, 0.001, 0.8 * v, 0.24, 0, dest); const o = this._osc('sine', 150, t, end, g); o.frequency.exponentialRampToValueAtTime(44, t + 0.07); break; }
-      case 'snare': { const { g, end } = this._env(t, 0.001, 0.4 * v, 0.16, 0, dest); this._noise(t, end, this._filter('bandpass', 1900, 0.8, g)); const b = this._env(t, 0.001, 0.3 * v, 0.06, 0, dest); this._osc('triangle', 210, t, b.end, b.g); break; }
-      case 'hat': { const { g, end } = this._env(t, 0.001, 0.18 * v, 0.045, 0, dest); this._noise(t, end, this._filter('highpass', 7500, 0.7, g)); break; }
+      // The kit is deliberately soft and dark: a round kick, a brushed snare and a dull
+      // hat. Anything crisp up here fights the lo-fi filter and ends up sounding tinny.
+      case 'kick': { const { g, end } = this._env(t, 0.004, 0.75 * v, 0.3, 0, dest); const lp = this._filter('lowpass', 260, 0.8, g); const o = this._osc('sine', 130, t, end, lp); o.frequency.exponentialRampToValueAtTime(46, t + 0.09); break; }
+      case 'snare': { const { g, end } = this._env(t, 0.004, 0.3 * v, 0.19, 0, dest); this._noise(t, end, this._filter('bandpass', 1250, 0.6, this._filter('lowpass', 3200, 0.7, g))); const b = this._env(t, 0.002, 0.18 * v, 0.08, 0, dest); this._osc('triangle', 190, t, b.end, b.g); break; }
+      case 'hat': { const { g, end } = this._env(t, 0.001, 0.11 * v, 0.04, 0, dest); this._noise(t, end, this._filter('bandpass', 5200, 0.9, g)); break; }
       case 'hand': { const { g, end } = this._env(t, 0.001, 0.45 * v, 0.09, 0, dest); this._noise(t, end, this._filter('bandpass', 950, 2.5, g)); const b = this._env(t, 0.001, 0.3 * v, 0.05, 0, dest); const o = this._osc('sine', 330, t, b.end, b.g); o.frequency.exponentialRampToValueAtTime(180, t + 0.05); break; }
       case 'rim': { const { g, end } = this._env(t, 0.001, 0.25 * v, 0.035, 0, dest); this._osc('sine', 820, t, end, g); this._noise(t, end, this._filter('highpass', 3000, 1, this._gain(0.4, g))); break; }
     }
@@ -123,13 +146,26 @@ export class GameAudio {
     layer('sea', (g) => { const mod = this._gain(0.55, g); const lp = this._filter('lowpass', 750, 0.6, mod); this._noise(0, 1e9, lp); const lfo = C.createOscillator(); lfo.frequency.value = 0.11; lfo.connect(this._gain(0.4, mod.gain)); lfo.start(); });
     layer('rain', (g) => { this._noise(0, 1e9, this._filter('highpass', 2600, 0.6, this._gain(0.5, g))); this._noise(0, 1e9, this._filter('bandpass', 900, 0.5, this._gain(0.25, g))); });
     layer('city', (g) => { const o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 52; o.connect(this._filter('lowpass', 120, 1, this._gain(0.5, g))); o.start(); this._noise(0, 1e9, this._filter('bandpass', 1100, 0.6, this._gain(0.18, g))); });
-    layer('crickets', (g) => { for (const [f, r] of [[4300, 23], [3800, 17]]) { const mod = this._gain(0.5, g); const o = C.createOscillator(); o.frequency.value = f; o.connect(mod); o.start(); const lfo = C.createOscillator(); lfo.type = 'square'; lfo.frequency.value = r; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); } });
-    layer('cicada', (g) => { const mod = this._gain(0.5, g); this._noise(0, 1e9, this._filter('bandpass', 4900, 14, mod)); const lfo = C.createOscillator(); lfo.frequency.value = 44; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); });
+    // Insects used to be pure high sine tones, which is exactly the kind of thing that
+    // gets tiring over a long run — they are noise-based and rolled off now.
+    layer('crickets', (g) => { const lp = this._filter('lowpass', 3600, 0.7, g); for (const [f, r] of [[3100, 23], [2700, 17]]) { const mod = this._gain(0.5, lp); this._noise(0, 1e9, this._filter('bandpass', f, 9, mod)); const lfo = C.createOscillator(); lfo.type = 'square'; lfo.frequency.value = r; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); } });
+    layer('cicada', (g) => { const mod = this._gain(0.5, this._filter('lowpass', 3800, 0.7, g)); this._noise(0, 1e9, this._filter('bandpass', 3200, 6, mod)); const lfo = C.createOscillator(); lfo.frequency.value = 38; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); });
     layer('drone', (g) => { const lp = this._filter('lowpass', 170, 1, g); for (const f of [36.7, 37.1, 55.3]) { const o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(this._gain(0.4, lp)); o.start(); } const trem = C.createOscillator(); trem.frequency.value = 5.5; trem.connect(this._gain(0.25, g.gain)); trem.start(); });
     layer('rumble', (g) => { this._noise(0, 1e9, this._filter('lowpass', 95, 1.2, g)); });
     layer('fire', (g) => { const mod = this._gain(0.5, g); this._noise(0, 1e9, this._filter('bandpass', 2600, 0.8, mod)); const lfo = C.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 13; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); this._noise(0, 1e9, this._filter('lowpass', 320, 1, this._gain(0.8, g))); });
     layer('jet', (g) => { this._noise(0, 1e9, this._filter('lowpass', 900, 0.8, g)); const o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 70; o.connect(this._filter('lowpass', 200, 1, this._gain(0.3, g))); o.start(); });
     layer('star', (g) => { const mod = this._gain(0.5, g); for (const d of [0, 7, 12]) { const o = C.createOscillator(); o.type = 'triangle'; o.frequency.value = 660 * Math.pow(2, d / 12); o.connect(this._gain(0.25, mod)); o.start(); } const lfo = C.createOscillator(); lfo.frequency.value = 8; lfo.connect(this._gain(0.5, mod.gain)); lfo.start(); });
+    // vinyl: a steady bed of surface noise plus the odd pop, sitting under the music
+    layer('vinyl', (g) => {
+      this._noise(0, 1e9, this._filter('bandpass', 2600, 0.4, this._gain(0.09, g)));
+      this._noise(0, 1e9, this._filter('highpass', 5200, 0.5, this._gain(0.05, g)));
+    });
+  }
+  /** A vinyl pop: one short click, scattered in time by the caller. */
+  _crackle() {
+    if (!this.ready) return; const t = this.ctx.currentTime;
+    const { g, end } = this._env(t, 0.0005, 0.045 + Math.random() * 0.05, 0.012, 0, this.amb);
+    this._noise(t, end, this._filter('bandpass', 1400 + Math.random() * 3600, 2.5, g));
   }
   _target(name, v) { const L = this.layers[name]; if (!L) return; if (Math.abs(L.target - v) < 0.005) return; L.target = v; L.g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.6); }
 
@@ -164,19 +200,36 @@ export class GameAudio {
     // pad follows the theme
     const th = THEMES[st.themeId] || THEMES.kyoto;
     this._setPad(th.root - 12, th.pad); this.pad.gain.gain.setTargetAtTime(th.pad && st.running && st.alive ? (th.pad === 'neon' ? 0.16 : 0.12) * (st.dawn ? 1.6 : 1) : 0, now, 0.8);
+    // How much of the arrangement is playing right now, and how open the lo-fi filter is.
+    // This is the "music changes when you go faster" knob: same tune, more of it.
+    const L = layersFor(st.speed, st.speedBase ?? 14, st.speedMax ?? 27);
+    this._target('vinyl', st.running && st.alive ? 0.5 - 0.25 * L.t : st.alive ? 0.35 : 0);
+    if (st.alive && Math.random() < dt * (2.2 - L.t)) this._crackle();
+    this.lofi.frequency.setTargetAtTime(1250 + 4200 * L.open + (st.dash ? 2500 : 0) + (st.dawn ? 1800 : 0), now, 0.7);
     // sequencer: schedule a little ahead of the clock
     if (!st.running || !st.alive) { this.nextStep = now + 0.05; return; }
     if (this.nextStep < now - 0.5) { this.nextStep = now + 0.05; this.step = 0; }
     while (this.nextStep < now + 0.22) {
-      if (this.step === 0 || !this.pattern) this.pattern = barFor(this.seed, this.bar, st.themeId, st.season, { drive: !!st.kaiju || st.setpiece === 'avalanche', tension: st.dread });
-      const bpm = this.pattern.bpm * (0.88 + 0.36 * clamp01((st.speed - 12) / 20)) * (st.dash ? 1.12 : 1);
-      const stepDur = 60 / bpm / 4, t = this.nextStep;
+      const drive = !!st.kaiju || st.setpiece === 'avalanche';
+      if (this.step === 0 || !this.pattern) this.pattern = barFor(this.seed, this.bar, st.themeId, st.season, { drive, tension: st.dread });
+      const bpm = this.pattern.bpm * L.tempo * (st.dash ? 1.1 : 1);
+      const stepDur = 60 / bpm / 4;
+      // swing: the offbeat sixteenth arrives late, which is most of what makes it feel lo-fi
+      const t = this.nextStep + (this.step % 2 ? stepDur * (this.pattern.swing ?? 0) : 0);
       for (const n of this.pattern.notes) if (n.step === this.step) {
+        if (n.voice === 'lead' && !L.lead && !drive) continue;
+        if (n.voice === 'arp' && !L.arp) continue;
         const voice = n.voice === 'lead' ? th.lead : n.voice === 'arp' ? th.arp : th.bass ? `bass:${th.bass}` : null;
-        if (voice) { this._note(voice, t, n.note + (st.dash && n.voice === 'arp' ? 12 : 0), n.len * stepDur, n.vel * (n.voice === 'lead' ? 1 : 0.8)); this.played++; }
+        if (!voice) continue;
+        this._note(voice, t, n.note, n.len * stepDur, n.vel * (n.voice === 'lead' ? 0.9 : 0.8)); this.played++;
+        if (n.voice === 'lead' && L.double) this._note(voice, t, n.note + 12, n.len * stepDur, n.vel * 0.3);
       }
-      for (const d of this.pattern.drums) if (d.step === this.step) this._drum(d.kind, t, d.vel * (st.kaiju ? 1.15 : 1));
-      if (st.dash && this.step % 2 === 1) this._drum('hat', t, 0.5);
+      for (const d of this.pattern.drums) if (d.step === this.step) {
+        if (!L.drums && !drive) continue;
+        if (d.kind === 'hat' && !L.hats) continue;
+        this._drum(d.kind, t, d.vel * (st.kaiju ? 1.15 : 1));
+      }
+      if (st.dash && this.step % 2 === 1) this._drum('hat', t, 0.35);
       this.nextStep += stepDur; this.step++; if (this.step >= STEPS) { this.step = 0; this.bar++; }
     }
   }
@@ -187,6 +240,7 @@ export class GameAudio {
     if (kind === 'jump') { const { g, end } = this._env(t, 0.02, 0.16, 0.14); const bp = this._filter('bandpass', 600, 1.5, g); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.15); this._noise(t, end, bp); const o = this._env(t, 0.005, 0.08, 0.1); const s = this._osc('triangle', 420, t, o.end, o.g); s.frequency.exponentialRampToValueAtTime(760, t + 0.1); }
     else if (kind === 'slide') { const { g, end } = this._env(t, 0.005, 0.2, 0.16); const bp = this._filter('bandpass', 1500, 2, g); bp.frequency.exponentialRampToValueAtTime(400, t + 0.16); this._noise(t, end, bp); }
     else if (kind === 'lane') { const { g, end } = this._env(t, 0.01, 0.07, 0.09); this._noise(t, end, this._filter('bandpass', 1200, 1.2, g)); }
+    else if (kind === 'fire') { const { g, end } = this._env(t, 0.005, 0.5, 0.6); const bp = this._filter('bandpass', 500, 1.2, g); bp.frequency.exponentialRampToValueAtTime(3400, t + 0.55); this._noise(t, end, bp); this.thud(0.45); }   // the fuse catches and it screams away
   }
   coin(streak = 0, n = 1) {
     if (!this.ready) return; const t = this.ctx.currentTime, f = 1320 * Math.pow(2, ((streak % 8) + (n > 1 ? 4 : 0)) / 12);
@@ -210,7 +264,21 @@ export class GameAudio {
       case 'dash': { const { g, end } = this._env(t + 0.05, 0.05, 0.3, 0.6); const o = this._osc('sawtooth', 220, t, end, this._filter('lowpass', 2500, 2, g)); o.frequency.exponentialRampToValueAtTime(1760, t + 0.6); break; }
       case 'guide': for (let i = 0; i < 3; i++) this._note('flute', t + 0.3 + i * 0.16, root + 24 - i * 3, 0.25, 0.4, this.sfx); break;
       case 'foxfire': { const { g, end } = this._env(t + 0.1, 0.2, 0.25, 0.9); this._noise(t, end, this._filter('bandpass', 2200, 6, g)); break; }
+      case 'rocket': { const { g, end } = this._env(t + 0.15, 0.002, 0.35, 0.08); this._noise(t + 0.15, end, this._filter('bandpass', 2600, 4, g)); this.thud(0.25); break; }   // loaded: a click and a knock, the launch is yours
     }
+  }
+  /** The rocket going off: a deep thump and a long tail of rolling noise. */
+  boom(n = 1) {
+    if (!this.ready) return; const t = this.ctx.currentTime;
+    this.thud(1.3); const { g, end } = this._env(t, 0.005, 0.8, 0.9 + Math.min(0.6, n * 0.1));
+    const lp = this._filter('lowpass', 2600, 0.6, g); lp.frequency.exponentialRampToValueAtTime(120, t + 0.9); this._noise(t, end, lp);
+    const o = this._osc('sine', 70, t, end, g); o.frequency.exponentialRampToValueAtTime(28, t + 0.5);
+  }
+  /** The road is about to fork: two notes, a question. The roads meeting again answers it. */
+  forkCall(joining) {
+    if (!this.ready) return; const t = this.ctx.currentTime, root = 74;
+    if (joining) { this._note('bell', t, root + 7, 0.8, 0.45, this.sfx); this._note('bell', t + 0.14, root + 12, 1.2, 0.5, this.sfx); }
+    else { this._note('flute', t, root, 0.32, 0.5, this.sfx); this._note('flute', t + 0.26, root + 5, 0.5, 0.55, this.sfx); this._note('flute', t + 0.62, root + 5, 0.5, 0.4, this.sfx); }
   }
   shieldHit() { if (!this.ready) return; this._note('bell', this.ctx.currentTime, 86, 0.8, 0.8, this.sfx); this.thud(0.4); }
   smash() { if (!this.ready) return; const t = this.ctx.currentTime; this.thud(0.8); const { g, end } = this._env(t, 0.001, 0.5, 0.25); this._noise(t, end, this._filter('bandpass', 2400, 0.9, g)); }
@@ -270,7 +338,9 @@ export class GameAudio {
       case 'shield': this.shieldHit(); break;
       case 'smash': this.smash(); break;
       case 'bump': this.yip(); this.thud(0.5); break;
-      case 'strike': this.strike(); break;
+      case 'strike': if (e.by !== 'rocket') this.strike(); break;   // a rocket's strikes are one boom, not a crackle each
+      case 'rocket.hit': this.boom(e.n); break;
+      case 'fork': if (e.at === 'ahead') this.forkCall(false); else if (e.at === 'join') this.forkCall(true); break;
       case 'transmute': this.transmute(); break;
       case 'gust.telegraph': this.gust(true); break;
       case 'gust': this.gust(false); break;

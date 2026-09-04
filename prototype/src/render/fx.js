@@ -63,10 +63,12 @@ function lines(parent, n, len, color, opacity) {
 }
 
 export function makeParticles(parent) {
-  const petals = new Field(parent, 420, { x: [-24, 24], y: [0.2, 12], z: [-8, 70] }, petalTex(), { baseSize: 0.32 });
-  const leaves = new Field(parent, 520, { x: [-26, 26], y: [0.1, 12], z: [-8, 70] }, leafTex(), { baseSize: 0.42, tumble: 1.6 });
+  // Seasonal fields are atmosphere, not weather: thinned so they drift past the frame
+  // instead of filling it, which is what made the road hard to read.
+  const petals = new Field(parent, 220, { x: [-24, 24], y: [0.2, 12], z: [-8, 70] }, petalTex(), { baseSize: 0.3 });
+  const leaves = new Field(parent, 240, { x: [-26, 26], y: [0.1, 12], z: [-8, 70] }, leafTex(), { baseSize: 0.38, tumble: 1.6 });
   leaves.paint(() => { const t = Math.random(); return t < 0.45 ? [0.95, 0.18 + Math.random() * 0.1, 0.08] : t < 0.8 ? [1, 0.5 + Math.random() * 0.2, 0.1] : [1, 0.85, 0.25]; });
-  const snow = new Field(parent, 1300, { x: [-26, 26], y: [0, 14], z: [-8, 70] }, flakeTex(), { baseSize: 0.22, tumble: 0.6 });
+  const snow = new Field(parent, 700, { x: [-26, 26], y: [0, 14], z: [-8, 70] }, flakeTex(), { baseSize: 0.2, tumble: 0.6 });
   const flies = new Field(parent, 160, { x: [-24, 24], y: [0.4, 4], z: [-6, 60] }, radial('rgba(255,255,200,1)', 'rgba(200,255,120,0)'), { additive: true, baseSize: 0.35, tumble: 0 });
   flies.paint(() => [1.4, 1.8, 0.6]);
   const dust = new Field(parent, 200, { x: [-14, 14], y: [0.5, 8], z: [-4, 40] }, radial('rgba(255,240,200,0.8)', 'rgba(255,240,200,0)'), { additive: true, baseSize: 0.12, tumble: 0 });
@@ -147,6 +149,61 @@ export function makeLocalTrain() {
 }
 
 /** Expanding ground rings for pickups, shield breaks, and barges. Root space. */
+/**
+ * A pool of one-shot particle bursts in track space: sparks where two runners collide,
+ * spray where a set piece breaks over the road. Points are ballistic — thrown out from
+ * the contact point, pulled down by gravity, faded over their life. `burst` is cheap
+ * enough to call on every collision.
+ */
+export function makeBurst(parent, { n = 240, size = 0.26, gravity = -14, additive = true, drag = 0.6, life = 0.55 } = {}) {
+  const pos = new Float32Array(n * 3);          // world space, written every frame
+  const col = new Float32Array(n * 3);          // tint × fade, what the shader reads
+  const tint = new Float32Array(n * 3);         // the colour this particle was born with
+  const vel = new Float32Array(n * 3);          // track space: (across, up, along)
+  const trk = new Float32Array(n * 3);          // track space position: (x, h, s)
+  const age = new Float32Array(n).fill(9), span = new Float32Array(n).fill(1);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const obj = new THREE.Points(geo, new THREE.PointsMaterial({ map: radial('rgba(255,255,255,1)', 'rgba(255,255,255,0)'), size, vertexColors: true, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending }));
+  obj.frustumCulled = false; parent.add(obj);
+  let head = 0;
+  return {
+    obj,
+    /** Throw `count` particles from (x across the road, y up, s along it). */
+    burst(x, y, s, color, count = 18, speed = 4.5, spread = 1) {
+      for (let k = 0; k < count; k++) {
+        const i = head; head = (head + 1) % n;
+        const a = Math.random() * Math.PI * 2, e = Math.random() * Math.PI * 0.5, v = speed * (0.35 + Math.random());
+        trk[i * 3] = x; trk[i * 3 + 1] = y; trk[i * 3 + 2] = s;
+        vel[i * 3] = Math.cos(a) * Math.cos(e) * v * spread;
+        vel[i * 3 + 1] = Math.sin(e) * v + speed * 0.35;
+        vel[i * 3 + 2] = Math.sin(a) * Math.cos(e) * v * spread;
+        const j = 0.75 + Math.random() * 0.5;
+        tint[i * 3] = color.r * j; tint[i * 3 + 1] = color.g * j; tint[i * 3 + 2] = color.b * j;
+        age[i] = 0; span[i] = life * (0.7 + Math.random() * 0.6);
+      }
+    },
+    update(dt) {
+      let any = false;
+      for (let i = 0; i < n; i++) {
+        if (age[i] >= span[i]) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0; continue; }
+        any = true; age[i] += dt;
+        const k = Math.exp(-drag * dt);
+        vel[i * 3] *= k; vel[i * 3 + 2] *= k; vel[i * 3 + 1] = vel[i * 3 + 1] * k + gravity * dt;
+        trk[i * 3] += vel[i * 3] * dt; trk[i * 3 + 2] += vel[i * 3 + 2] * dt;
+        trk[i * 3 + 1] = Math.max(0.02, trk[i * 3 + 1] + vel[i * 3 + 1] * dt);
+        if (trk[i * 3 + 1] <= 0.02 && vel[i * 3 + 1] < 0) vel[i * 3 + 1] *= -0.35;        // a little skip off the road
+        TRACK.map(trk[i * 3], trk[i * 3 + 1], trk[i * 3 + 2], 0, _P);                     // track space → the spline
+        pos[i * 3] = _P.x; pos[i * 3 + 1] = _P.y; pos[i * 3 + 2] = _P.z;
+        const f = 1 - age[i] / span[i], s = f * f;
+        col[i * 3] = tint[i * 3] * s; col[i * 3 + 1] = tint[i * 3 + 1] * s; col[i * 3 + 2] = tint[i * 3 + 2] * s;
+      }
+      obj.visible = any;
+      geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
+    },
+  };
+}
+
 export function makeShockRing(parent) {
   const rings = [];
   for (let i = 0; i < 6; i++) {

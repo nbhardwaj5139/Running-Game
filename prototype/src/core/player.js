@@ -1,9 +1,12 @@
 // One runner: fixed-tick, buffered inputs, coyote time, variable-height jump,
 // eased lane changes. Forward motion belongs to the World (both runners share it).
-import { LANES, LANES_TOTAL, trackOf, DIFFICULTY } from './chunks.js';
+import { LANES, LANES_TOTAL, trackOf, spawnLane, DIFFICULTY } from './chunks.js';
 
 export const P = {
-  LANE_T: 0.15,
+  // A lane change is a glide, not a snap — eased in and out (see easeInOutCubic). It must
+  // still finish inside one beat at top speed (6 m / 30 m/s = 0.2 s) or the solvability
+  // grammar, which assumes one lane step per row, stops being honest.
+  LANE_T: 0.18,
   GRAVITY: -38,
   JUMP_V: 10.8,
   JUMP_HOLD_T: 0.18,
@@ -16,8 +19,8 @@ export const P = {
   COYOTE_T: 0.08,
   STUMBLE_T: 1.0,
   STUMBLE_MULT: 0.72,
-  SPEED_MAX: 27,
-  SPEED_BASE: 14,
+  SPEED_MAX: 30,
+  SPEED_BASE: 18,         // you are already moving at a clip from the first step
   DASH_T: 5,              // Wind Kami star run: invulnerable, faster, smashes everything in its path
   MAGNET_T: 10,
   SHIELD_T: 8,            // Kitsune shield: smash through obstacles for a while
@@ -32,12 +35,14 @@ export function speedAt(distance, cfg = DIFFICULTY.normal) {
   return Math.min(max, base + (max - base) * 0.38 * Math.log2(1 + distance / 700));
 }
 
-const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+/** Eased both ends: the runner leans out of a lane and settles into the next one. */
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 export class Player {
-  constructor(id = 1) {
-    this.id = id;               // 0 = tanuki (home track 0, left), 1 = kitsune (home track 1, right)
-    this.lane = id * LANES + 1; // global lane 0..5; starts in the middle of the home track
+  /** @param id index of this runner  @param lane starting global lane (defaults to the historical two-runner seating) */
+  constructor(id = 1, lane = null) {
+    this.id = id;               // runner index; 0 and 1 are the historical left/right pair
+    this.lane = this.homeLane = lane ?? spawnLane(id, 2);   // global lane 0..5
     this.laneFromX = this.lane; // lane position where the current lane change started
     this.laneT = 1;             // 0..1 progress of lane change
     this.xLane = this.lane;     // continuous global lane position for rendering and proximity
@@ -47,15 +52,20 @@ export class Player {
     this.stumbleT = 0;
     this.z = 0;
     this.shield = false; this.shieldT = 0; this.magnetT = 0; this.dashT = 0; this.jetpackT = 0; this.iT = 0; this.foxfireT = 0; this.guideT = 0;
+    this.rocket = false; this.fire = false;   // a bō-hiya loaded and waiting; the press that lets it go (the World launches it)
+    this.coins = 0; this.score = 0; this.streak = 0;   // this runner's own tally: everyone keeps their own scoreboard
     this.buffered = { jump: null, slide: null, lane: null };
     this.tick = 0;
     this.laneTime = P.LANE_T; this.stumbleScale = 1;   // set by the world from the weather
-    this.laneMin = 0; this.laneMax = LANES_TOTAL - 1;
+    this.laneMin = 0; this.laneMax = LANES_TOTAL - 1; this.group = 0;   // the road this runner is held to while the road is forked
   }
 
-  /** evt: {kind:'jump'|'slide'|'lane'|'jumpRelease', dir?} — stamped with the current tick. */
+  /** evt: {kind:'jump'|'slide'|'lane'|'fire'|'jumpRelease', dir?} — stamped with the current tick. */
   input(evt) {
     if (evt.kind === 'jumpRelease') { this.jumpDown = false; return; }
+    // The fire key is Space, which is also a jump: with a rocket loaded it fires, otherwise it
+    // jumps. The sim decides, not the keyboard, so every machine in a co-op run agrees.
+    if (evt.kind === 'fire') { if (this.rocket) { this.fire = true; return; } evt = { ...evt, kind: 'jump' }; }
     if (evt.kind === 'jump') this.jumpDown = true;
     if (evt.kind in this.buffered) this.buffered[evt.kind] = { ...evt, tick: this.tick };
   }
@@ -67,7 +77,8 @@ export class Player {
   get flying() { return this.jetpackT > 0; }
   /** The track this runner is physically on right now (it may have crossed over). */
   get track() { return trackOf(this.xLane); }
-  get home() { return this.id; }
+  /** The track this runner started on — the autopilot's half of the road. */
+  get home() { return Math.floor(this.homeLane / LANES); }
 
   step(dt) {
     this.tick++;
@@ -80,7 +91,7 @@ export class Player {
       this.buffered.lane = null;
     } else if (bl && !this._fresh(bl)) this.buffered.lane = null;
     this.laneT = Math.min(1, this.laneT + dt / this.laneTime);
-    this.xLane = this.laneFromX + (this.lane - this.laneFromX) * easeOutCubic(this.laneT);
+    this.xLane = this.laneFromX + (this.lane - this.laneFromX) * easeInOutCubic(this.laneT);
 
     // --- jump ---
     const bj = this.buffered.jump;

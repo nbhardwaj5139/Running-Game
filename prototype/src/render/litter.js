@@ -19,7 +19,7 @@ export function makeLitter(parent) {
     fill(chunk, rng, season) {
       const kind = season === 2 ? 'leaf' : season === 0 ? 'petal' : null; if (!kind) return;
       const pool = pools[kind], pal = kind === 'leaf' ? LEAF : PETAL; const list = [];
-      const n = kind === 'leaf' ? 300 : 220;
+      const n = kind === 'leaf' ? 130 : 100;   // enough to kick up and notice; not a carpet over the road
       for (let i = 0; i < n; i++) {
         const onRoad = rng() < 0.75; const x = onRoad ? (rng() * 2 - 1) * ROAD_HALF : (rng() < 0.5 ? -1 : 1) * (ROAD_HALF + rng() * 6);
         const it = { x, s: chunk.z0 + rng() * CHUNK_LEN, y: 0.02, vx: 0, vy: 0, vs: 0, rot: rng() * 6.28, spin: 0, air: false, sc: 0.7 + rng() * 0.6, pool, i: -1 };

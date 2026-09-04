@@ -19,10 +19,18 @@
   .bar i { display: block; height: 100%; width: 0; transition: width .08s linear; }
   .bar label { position: absolute; top: -18px; left: 0; font-size: 11px; letter-spacing: .25em; opacity: .8; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
   #storm { bottom: 16px; } #storm i { background: linear-gradient(90deg, var(--red), #ff9a3c); box-shadow: 0 0 10px var(--red); }
-  .runner { position: absolute; bottom: 44px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; letter-spacing: .12em; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
-  .runner.l { left: 16px; align-items: flex-start; } .runner.r { right: 16px; align-items: flex-end; }
-  .runner .name { font-family: "Shippori Mincho", serif; font-size: 14px; opacity: .85; }
-  .runner .name span { font-size: 11px; opacity: .7; margin-left: 6px; font-family: inherit; }
+  /* One card per runner on the road, each in that character's own colour, each with its
+     own coin and score tally. The row wraps, so four or eight runners all fit. */
+  #runners { position: absolute; bottom: 44px; left: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; justify-content: center; pointer-events: none; }
+  .runner { display: flex; flex-direction: column; gap: 4px; font-size: 12px; letter-spacing: .12em; text-shadow: 0 1px 3px rgba(0,0,0,.8);
+            padding: 5px 10px 6px; border-radius: 10px; background: rgba(10,8,16,.42); border: 1px solid rgba(255,255,255,.14); border-left: 3px solid var(--rc, #fff); min-width: 118px; }
+  .runner.me { background: rgba(24,18,32,.62); border-color: rgba(255,255,255,.3); }
+  .runner.out { opacity: .4; filter: grayscale(1); }
+  .runner .name { font-family: "Shippori Mincho", serif; font-size: 13px; opacity: .9; color: var(--rc, #fff); white-space: nowrap; }
+  .runner .name span { font-size: 11px; opacity: .7; margin-left: 6px; font-family: inherit; color: #fff; }
+  .runner .tally { display: flex; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .95; }
+  .runner .tally b { font-weight: 700; color: #ffd23f; } .runner .tally i { font-style: normal; opacity: .75; }
+  .runner .tally .pts { color: #fff; }
   .chips { display: flex; gap: 6px; }
   .chip { padding: 3px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); display: none; }
   .chip.on { display: inline-block; }
@@ -43,10 +51,11 @@
   .standings { margin: 8px auto 0; border-collapse: collapse; font-size: 13px; letter-spacing: .05em; }
   .standings td { padding: 3px 10px; } .standings tr.me td { color: var(--amber); } .standings td.bad { color: var(--red); }
   #toast { position: absolute; top: 30%; left: 0; right: 0; text-align: center; pointer-events: none; opacity: 0; transition: opacity .5s; }
-  #toast b { display: block; font-family: "Shippori Mincho", serif; font-size: 64px; letter-spacing: .3em; color: #fff; text-shadow: 0 0 30px rgba(255,255,255,.6), 0 2px 6px rgba(0,0,0,.6); }
+  #toast b { display: block; font-family: "Shippori Mincho", serif; font-size: 52px; letter-spacing: .3em; color: #fff; text-shadow: 0 0 30px rgba(255,255,255,.6), 0 2px 6px rgba(0,0,0,.6); }
   #toast span { font-size: 14px; letter-spacing: .4em; text-transform: uppercase; opacity: .85; }
   #toast.on { opacity: 1; }
-  #power { position: absolute; top: 44%; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 700; letter-spacing: .2em; color: #fff; text-shadow: 0 0 16px rgba(126,240,255,.9); opacity: 0; transition: opacity .3s; pointer-events: none; }
+  /* clear of the toast above it: the two used to print on top of each other */
+  #power { position: absolute; top: 52%; left: 0; right: 0; text-align: center; font-size: 20px; font-weight: 700; letter-spacing: .2em; color: #fff; text-shadow: 0 0 16px rgba(126,240,255,.9); opacity: 0; transition: opacity .3s; pointer-events: none; }
   #power.on { opacity: 1; }
   #pickup { position: absolute; top: 20%; left: 50%; transform: translate(-50%, 0) scale(.7); pointer-events: none; opacity: 0; transition: opacity .25s, transform .25s; text-align: center; --pc: #fff; }
   #pickup.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
@@ -81,7 +90,9 @@
   .god { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-size: 12px; letter-spacing: .05em; text-transform: none; cursor: pointer; }
   .god small { opacity: .6; font-size: 10px; }
   .god input { accent-color: var(--amber); }
-  #hit { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); color: #ff9aa6; font-size: 14px; letter-spacing: .12em; text-shadow: 0 1px 4px rgba(0,0,0,.9); opacity: 0; transition: opacity .25s; white-space: nowrap; }
+  /* sits above the scoreboard row, never across it */
+  #hit { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); color: #ff9aa6; font-size: 14px; letter-spacing: .12em; text-shadow: 0 1px 4px rgba(0,0,0,.9); opacity: 0; transition: opacity .25s; white-space: nowrap;
+         background: rgba(10,8,16,.5); padding: 4px 12px; border-radius: 12px; }
   #hit.on { opacity: 1; }
   #hit b { color: #fff; }
   .diff { display: flex; gap: 8px; justify-content: center; align-items: center; margin: 14px 0 4px; font-size: 11px; letter-spacing: .25em; text-transform: uppercase; opacity: .9; }
@@ -93,11 +104,19 @@
   #msgFoot { font-size: 12px; opacity: .7; margin-top: 8px; }
   #quit { position: fixed; top: 14px; right: 50%; transform: translateX(calc(50% + 180px)); z-index: 4; display: none; border: 1px solid rgba(255,255,255,.28); background: rgba(12,8,20,.55); color: var(--ink); border-radius: 20px; padding: 5px 12px; font: inherit; font-size: 11px; letter-spacing: .15em; cursor: pointer; backdrop-filter: blur(6px); }
   #quit:hover { border-color: var(--red); color: #fff; }
+  /* the rocket trigger for touch: only there while one is loaded */
+  #fire { position: fixed; right: 18px; bottom: 150px; z-index: 4; display: none; width: 76px; height: 76px; border-radius: 50%; border: 2px solid rgba(255,160,80,.8); background: radial-gradient(circle at 40% 35%, rgba(255,120,40,.85), rgba(120,30,10,.85)); color: #fff; font: inherit; font-size: 12px; letter-spacing: .2em; box-shadow: 0 0 22px rgba(255,120,40,.55); cursor: pointer; touch-action: none; }
+  #fire.on { display: block; } #fire b { display: block; font-size: 20px; letter-spacing: 0; font-family: "Shippori Mincho", serif; }
+  @media (hover: hover) and (pointer: fine) { #fire.on { display: none; } }   /* a keyboard has Space */
   @media (max-width: 700px) { #quit { right: 12px; transform: none; top: 52px; } }
   #mute { position: fixed; top: 14px; left: 50%; transform: translateX(calc(-50% - 180px)); z-index: 4; border: 1px solid rgba(255,255,255,.28); background: rgba(12,8,20,.55); color: var(--ink); border-radius: 20px; padding: 5px 12px; font: inherit; font-size: 11px; letter-spacing: .15em; cursor: pointer; backdrop-filter: blur(6px); }
   #mute.off { opacity: .55; text-decoration: line-through; }
   #mute:hover { border-color: var(--amber); color: #fff; }
   @media (max-width: 700px) { #mute { left: 12px; transform: none; top: 52px; } }
+  /* volume: a small slider beside the mute button */
+  #vol { position: fixed; top: 19px; left: 50%; transform: translateX(calc(-50% - 92px)); z-index: 4; width: 72px; height: 14px; margin: 0; accent-color: var(--amber); cursor: pointer; opacity: .8; }
+  #vol:hover { opacity: 1; }
+  @media (max-width: 700px) { #vol { left: 110px; transform: none; top: 57px; } }
   #pause { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; background: rgba(6,4,12,.45); backdrop-filter: blur(3px); }
   #pause.hidden { display: none; }
   #pause .card { background: rgba(12,8,20,.8); border: 1px solid rgba(255,255,255,.2); border-radius: 14px; padding: 22px 30px; text-align: center; }
@@ -121,14 +140,14 @@
   <div id="toast"><b id="toastJp"></b><span id="toastEn"></span></div>
   <div id="power"></div>
   <div id="pickup"><b class="glyph"></b><span class="name"></span><span class="what"></span><span class="who"></span></div>
-  <div class="runner l" id="runner0"><div class="name">狸 TANUKI <span id="who0">spirit companion</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">翼 jetpack</i><i class="chip foxfire">狐火 fox-fire</i><i class="chip guide">烏 guided</i></div></div>
-  <div class="runner r" id="runner1"><div class="name">狐 KITSUNE <span id="who1">you</span></div><div class="chips"><i class="chip shield">御守 shield</i><i class="chip magnet">磁 magnet</i><i class="chip dash">★ star run</i><i class="chip jetpack">翼 jetpack</i><i class="chip foxfire">狐火 fox-fire</i><i class="chip guide">烏 guided</i></div></div>
+  <div id="runners"></div>
   <div id="hit"></div>
+  <button id="fire" type="button"><b>棒火矢</b>FIRE</button>
   <div class="bar" id="storm"><label>台風 TYPHOON</label><i></i></div>
   <div id="hint"></div>
 </div>
 <button id="quit" title="Pause (Esc)">❚❚ <kbd>Esc</kbd> pause</button>
-<button id="mute" title="Sound on/off (M)">♪ on · M</button>
+<button id="mute" title="Sound on/off (M)">♪ on · M</button><input id="vol" type="range" min="0" max="100" step="1" value="100" title="Volume" aria-label="Volume">
 <div id="pause" class="hidden">
   <div class="card">
     <h2>一時停止<small>PAUSED</small></h2>
@@ -144,8 +163,8 @@
   <div class="card">
     <h1>KITSUNE<small>狐 · 四季を駆ける</small></h1>
     <p id="msgBody">A fox spirit runs the old road from Kyoto to Okinawa — shrine stairs, neon cities, snowbound suburbs and coast roads — as the seasons turn.<br>A typhoon follows. Stay ahead of it.</p>
-    <div class="pick"><span>you · right road</span><div class="pickrow"><canvas class="preview" id="prev1" width="150" height="150"></canvas><div class="chars" id="chars1"></div></div></div>
-    <div class="pick"><span>player 2 · left road (2P only)</span><div class="pickrow"><canvas class="preview" id="prev0" width="150" height="150"></canvas><div class="chars" id="chars0"></div></div></div>
+    <div class="pick"><span>you — your colour is your scarf</span><div class="pickrow"><canvas class="preview" id="prev1" width="150" height="150"></canvas><div class="chars" id="chars1"></div></div></div>
+    <div class="pick"><span>player 2 · same keyboard (2P only)</span><div class="pickrow"><canvas class="preview" id="prev0" width="150" height="150"></canvas><div class="chars" id="chars0"></div></div></div>
     <div class="diff" id="diff"><span>difficulty</span>
       <button class="dbtn" data-diff="easy">易 Easy</button><button class="dbtn on" data-diff="normal">普通 Normal</button><button class="dbtn" data-diff="hard">難 Hard</button>
       <label class="god"><input type="checkbox" id="god"> 神 God mode <small>never die · see the whole journey</small></label>

@@ -5,6 +5,7 @@ import { CHUNK_LEN, biomeOf, seasonOf, provinceOf, DIFFICULTY, POWER_INFO } from
 import { Renderer, nightAt } from './render/renderer.js';
 import { SEASON_LABEL, BIOME_LABEL } from './render/theme.js';
 import { CHARACTERS, characterById, buildCharacter } from './render/characters.js';
+import { GameAudio } from './audio/audio.js';
 import * as THREE from 'three';
 
 const q = new URLSearchParams(location.search);
@@ -17,6 +18,12 @@ const hud = { dist: $('dist'), score: $('score'), coins: $('coins'), storm: $('s
   quit: $('quit'), pause: $('pause'), hit: $('hit'), secJp: $('secJp'), secEn: $('secEn'), toast: $('toast'), toastJp: $('toastJp'), toastEn: $('toastEn'), power: $('power'), pickup: $('pickup'), x2: $('x2'), runners: [$('runner0'), $('runner1')], who: [$('who0'), $('who1')] };
 
 let world, renderer, running = false, mode = 0, difficulty = 'normal', god = false, hitT = 0;
+// ---- sound: synthesised in the browser, unlocked by the first key or tap (browser rule), M mutes
+const audio = new GameAudio(seed);
+const muteBtn = $('mute');
+function drawMute() { muteBtn.textContent = audio.muted ? '♪ off · M' : '♪ on · M'; muteBtn.classList.toggle('off', audio.muted); }
+muteBtn.addEventListener('click', () => { audio.unlock(); audio.toggleMuted(); drawMute(); });
+drawMute();
 let acc = 0, last = performance.now(), toastT = 0, powerT = 0, pickupT = 0;
 try { mode = Number(localStorage.getItem('kitsune.mode')) || 0; difficulty = localStorage.getItem('kitsune.diff') || 'normal'; } catch { mode = 0; }
 if (DIFFICULTY[q.get('diff')]) difficulty = q.get('diff');
@@ -78,7 +85,7 @@ function newWorld() {
   world = new World(seed, {
     reducedMotion, difficulty, solo: mode === 1, autopilot: [], invincible: god,
     onEvent: (e) => {
-      renderer?.onEvent(e);
+      renderer?.onEvent(e); audio.onEvent(e);
       if ((e.type === 'stumble' || e.type === 'fall') && !e.free && e.cell) {
         const VERB = { arch: 'slide under it', drusen: 'jump over it', wave: 'jump the wave', gap: 'jump the gap', stalk: 'change lane', wide: 'take the free lane', roller: 'let it pass' };
         const NAME = { arch: 'a gate', drusen: 'a low block', wave: 'a shockwave', gap: 'a hole', stalk: 'a post', wide: 'a wide block', roller: 'a roller' };
@@ -102,6 +109,7 @@ function newWorld() {
     },
   });
   if (renderer) renderer.reset(world);
+  audio.setSeed(seed);
   showSection(seasonOf(0), biomeOf(0), false, provinceOf(0));
 }
 
@@ -143,6 +151,7 @@ function start(m) {
   hud.who[0].textContent = 'player 2 · WASD'; hud.runners[0].style.display = mode === 1 ? 'none' : '';
   hud.who[1].textContent = mode === 1 ? 'you' : 'player 1 · arrows';
   running = true; hud.msg.classList.add('hidden'); hud.quit.style.display = 'block'; last = performance.now(); acc = 0;
+  audio.unlock(); audio.begin();
 }
 hud.modes.addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) start(Number(b.dataset.mode)); });
 
@@ -156,9 +165,12 @@ function press(track, kind, dir) {
   if (!running) { start(); return; }
   const t = mode === 1 ? 1 : track;
   world.input(t, dir === undefined ? { kind } : { kind, dir });
+  if (kind !== 'lane' || world.runners[t].laneT >= 1) audio.action(kind);
 }
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  audio.unlock();
+  if (e.code === 'KeyM') { audio.toggleMuted(); drawMute(); return; }
   if (e.code === 'Digit1' || e.code === 'Digit2') { if (!running) { start(e.code === 'Digit1' ? 1 : 2); } return; }
   if (e.code === 'Escape' || e.code === 'KeyP') { if (paused) resume(); else if (running) pause(); return; }
   if (paused) { if (e.code === 'Enter') resume(); return; }
@@ -171,7 +183,7 @@ addEventListener('keyup', (e) => {
   if (e.code === 'KeyW') world.input(mode === 1 ? 1 : 0, { kind: 'jumpRelease' });
 });
 let touch = null;
-addEventListener('pointerdown', (e) => { if (e.target.closest('.mode, #quit, .dbtn, .cbtn')) return; touch = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerdown', (e) => { audio.unlock(); if (e.target.closest('.mode, #quit, #mute, .dbtn, .cbtn')) return; touch = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', (e) => {
   if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y; const track = mode === 2 && touch.x < innerWidth / 2 ? 0 : 1; touch = null;
   if (!running) { if (mode) start(); return; }
@@ -187,6 +199,11 @@ function frame(now) {
   if (running) { acc += dt; while (acc >= W.TICK) { world.step(); acc -= W.TICK; } }
   renderer.render(dt);
   if (!running && !paused) drawPreviews(dt);
+  {
+    const idx = world.chunkIndex, live = world.runners.filter(r => !r.disabled);
+    audio.update(dt, { themeId: provinceOf(idx).id, season: seasonOf(idx), biome: biomeOf(idx), speed: world.speed, night: nightAt(world.distance), dread: 1 - Math.max(0, world.storm) / W.STORM_MAX,
+      weather: world.weather, kaiju: !!world.kaiju, setpiece: world.setpiece, running: running && !paused, alive: world.alive, jetpack: live.some(r => r.jetpackT > 0), dash: live.some(r => r.dashT > 0), dawn: world.dawnT > 0, thunder: renderer.thunderT || 0 });
+  }
 
   hud.dist.textContent = Math.floor(world.distance) + ' m';
   hud.score.textContent = Math.floor(world.score);
@@ -220,5 +237,5 @@ if (q.get('mode')) start(Number(q.get('mode')));
 requestAnimationFrame(frame);
 
 // expose for debugging / headless smoke tests
-globalThis.__kitsune = { get world() { return world; }, renderer, start, press, get running() { return running; }, get mode() { return mode; } };
+globalThis.__kitsune = { get world() { return world; }, renderer, audio, start, press, get running() { return running; }, get mode() { return mode; } };
 globalThis.__vitreous = globalThis.__kitsune;
